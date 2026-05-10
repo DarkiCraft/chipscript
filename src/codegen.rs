@@ -71,9 +71,9 @@ impl Codegen {
             self.registers.insert(var.name.clone(), r);
         }
 
-        // emit jump placeholder over sprites
+        // FIX 1: record jump_offset BEFORE emitting, not hardcoded to 0
+        let jump_offset = self.rom.len();
         self.emit(0x1000);
-        let jump_offset = 0usize;
 
         // embed sprites, record addresses and heights
         let mut pos = 2u16;
@@ -594,17 +594,36 @@ impl Codegen {
                 self.emit(0x3F00 | 0x01); // SE VF, 1
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             },
+
+            // FIX 2: Op::And was logically NAND (SNE on left inverted the result for VL=false).
+            // New approach: assume true, then clear to false if either operand is false.
+            //   dest = 1
+            //   SE VL, 1  — if VL is true, skip the "dest=0" below it and go check VR
+            //   dest = 0  — VL was false, short-circuit: done
+            //   SE VR, 1  — if VR is true, skip the "dest=0" below it: both true, keep 1
+            //   dest = 0  — VR was false: done
             Op::And => {
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
-                self.emit(0x4000 | ((lr as u16) << 8) | 0x01); // SNE VL, 1
-                self.emit(0x4000 | ((rr as u16) << 8) | 0x01); // SNE VR, 1
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1 (assume true)
+                self.emit(0x3000 | ((lr as u16) << 8) | 0x01);   // SE VL, 1 — skip if VL true
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (VL false)
+                self.emit(0x3000 | ((rr as u16) << 8) | 0x01);   // SE VR, 1 — skip if VR true
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (VR false)
             },
+
+            // FIX 3: Op::Or was broken — two chained SE instructions can't correctly implement OR.
+            // When VL=false and VR=true, the first SE fell through to the second SE which then
+            // *skipped* dest=1, leaving 0. When VL=false and VR=false, both SE fell through
+            // and dest=1 was set incorrectly.
+            // New approach: assume false, set true if either operand is true.
+            //   dest = 0
+            //   SE VL, 1  — if VL true, skip the SNE below and execute dest=1
+            //   SNE VR, 1 — if VR false (!=1), skip dest=1; if VR true, fall through to dest=1
+            //   dest = 1
             Op::Or => {
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
-                self.emit(0x3000 | ((lr as u16) << 8) | 0x01); // SE VL, 1
-                self.emit(0x3000 | ((rr as u16) << 8) | 0x01); // SE VR, 1
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (assume false)
+                self.emit(0x3000 | ((lr as u16) << 8) | 0x01);   // SE VL, 1 — skip SNE if VL true
+                self.emit(0x4000 | ((rr as u16) << 8) | 0x01);   // SNE VR, 1 — skip dest=1 if VR false
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1
             },
         }
 
