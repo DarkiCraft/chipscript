@@ -277,15 +277,28 @@ impl Codegen {
         match cond {
             Expr::Var(name) => {
                 let r = self.reg(name);
-                // SE VX, 1 -- skip if true (execute body)
                 self.emit(0x3000 | ((r as u16) << 8) | 0x01);
                 let offset = self.rom.len();
-                self.emit(0x1000); // JP skip body
+                self.emit(0x1000);
                 offset
             }
-            Expr::BinOp(left, op, right) => self.emit_comparison_jump(left, op, right),
+            Expr::BinOp(left, op, right) => {
+                match op {
+                    Op::EqEq | Op::NotEq | Op::Lt | Op::Gt | Op::LtEq | Op::GtEq => {
+                        self.emit_comparison_jump(left, op, right)
+                    }
+                    _ => {
+                        let r = self.alloc_reg();
+                        self.emit_load_expr(r, cond);
+                        self.emit(0x3000 | ((r as u16) << 8) | 0x01);
+                        let offset = self.rom.len();
+                        self.emit(0x1000);
+                        self.free_regs(1);
+                        offset
+                    }
+                }
+            }
             _ => {
-                // evaluate into temp reg, then check
                 let r = self.alloc_reg();
                 self.emit_load_expr(r, cond);
                 self.emit(0x3000 | ((r as u16) << 8) | 0x01);
