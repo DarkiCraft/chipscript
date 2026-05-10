@@ -118,7 +118,7 @@ fn parse_args() -> Opts {
 fn main() {
     let opts = parse_args();
 
-    // ── resolve output path ──────────────────────────────────────
+    // -- resolve output path --------------------------------------
     let out_path = opts.output.unwrap_or_else(|| {
         if opts.input.ends_with(".cs") {
             opts.input.replace(".cs", ".ch8")
@@ -127,7 +127,7 @@ fn main() {
         }
     });
 
-    // ── read source ──────────────────────────────────────────────
+    // -- read source ----------------------------------------------
     let source = std::fs::read_to_string(&opts.input).unwrap_or_else(|e| {
         eprintln!("error: could not read '{}': {}", opts.input, e);
         process::exit(1);
@@ -137,7 +137,7 @@ fn main() {
         eprintln!("[1/5] lexing '{}'", opts.input);
     }
 
-    // ── lex ──────────────────────────────────────────────────────
+    // -- lex ------------------------------------------------------
     let tokens = lexer::lex(source);
 
     if opts.verbose {
@@ -145,7 +145,7 @@ fn main() {
         eprintln!("[2/5] parsing");
     }
 
-    // ── parse ────────────────────────────────────────────────────
+    // -- parse ----------------------------------------------------
     let mut parser = parser::Parser::new(tokens);
     let mut program = parser.parse();
 
@@ -163,13 +163,13 @@ fn main() {
         }
     }
 
-    // ── analyze ──────────────────────────────────────────────────
+    // -- analyze --------------------------------------------------
     if !opts.no_analyze {
         let mut analyzer = analyzer::Analyzer::new();
         analyzer.analyze(&program);
     }
 
-    // ── optimize ─────────────────────────────────────────────────
+    // -- optimize -------------------------------------------------
     if opts.no_opt {
         if opts.verbose {
             eprintln!("[4/5] optimization skipped (--no-opt)");
@@ -192,11 +192,11 @@ fn main() {
         eprintln!("[5/5] generating ROM");
     }
 
-    // ── codegen ──────────────────────────────────────────────────
+    // -- codegen --------------------------------------------------
     let mut codegen = codegen::Codegen::new();
     let rom = codegen.generate(&program);
 
-    // ── write output (create parent dirs if needed) ──────────────
+    // -- write output (create parent dirs if needed) --------------
     if let Some(parent) = std::path::Path::new(&out_path).parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).unwrap_or_else(|e| {
