@@ -1,11 +1,7 @@
-#[cfg(not(test))]
 pub fn fail(msg: String) -> ! {
     eprintln!("error: {}", msg);
-    std::process::exit(1);
-}
-
-#[cfg(test)]
-pub fn fail(msg: String) -> ! {
-    eprintln!("error: {}", msg);
+    #[cfg(feature = "testing")]
     panic!("{}", msg);
+    #[cfg(not(feature = "testing"))]
+    std::process::exit(1);
 }
