@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use crate::lexer::Token;
 use crate::ast::*;
 use crate::error::*;
+use crate::lexer::Token;
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -51,14 +51,19 @@ impl Parser {
         while !self.check(&Token::EOF) {
             match self.peek().clone() {
                 Token::Sprites => sprites = self.parse_sprites_block(),
-                Token::Vars    => vars = self.parse_vars(),
-                Token::Fn      => functions.push(self.parse_fn()),
-                Token::Main    => main = self.parse_main(),
-                other   => fail(format!("unexpected token at top level: {:?}", other)),
+                Token::Vars => vars = self.parse_vars(),
+                Token::Fn => functions.push(self.parse_fn()),
+                Token::Main => main = self.parse_main(),
+                other => fail(format!("unexpected token at top level: {:?}", other)),
             }
         }
 
-        Program { sprites, vars, functions, main }
+        Program {
+            sprites,
+            vars,
+            functions,
+            main,
+        }
     }
 
     // -- SPRITE -----------------------------------------------
@@ -81,16 +86,18 @@ impl Parser {
                             Token::Int(b) => bytes.push(b as u8),
                             other => panic!("expected byte in sprite, got {:?}", other),
                         }
-                        if self.check(&Token::Comma) { self.advance(); }
+                        if self.check(&Token::Comma) {
+                            self.advance();
+                        }
                     }
                     self.expect(&Token::RBracket);
                     SpriteData::Inline(bytes)
-                },
+                }
                 Token::StringLit(s) => {
                     let s = s.clone();
                     self.advance();
                     SpriteData::File(s)
-                },
+                }
                 other => panic!("expected sprite data, got {:?}", other),
             };
             self.expect(&Token::Semicolon);
@@ -133,7 +140,9 @@ impl Parser {
                 Token::Ident(n) => args.push(n),
                 other => fail(format!("expected arg name, got {:?}", other)),
             }
-            if self.check(&Token::Comma) { self.advance(); }
+            if self.check(&Token::Comma) {
+                self.advance();
+            }
         }
         self.expect(&Token::RParen);
         self.expect(&Token::Arrow);
@@ -142,7 +151,12 @@ impl Parser {
             other => fail(format!("expected return name, got {:?}", other)),
         };
         let body = self.parse_block();
-        FnDecl { name, args, ret, body }
+        FnDecl {
+            name,
+            args,
+            ret,
+            body,
+        }
     }
 
     // -- MAIN -------------------------------------------------
@@ -165,12 +179,36 @@ impl Parser {
     // -- STATEMENT --------------------------------------------
     fn parse_stmt(&mut self) -> Stmt {
         match self.peek().clone() {
-            Token::If    => self.parse_if(),
-            Token::Loop  => { self.advance(); let body = self.parse_block(); Stmt::Loop(body) },
-            Token::While => { self.parse_while() },
-            Token::Clear => { self.advance(); self.expect(&Token::LParen); self.expect(&Token::RParen); self.expect(&Token::Semicolon); Stmt::Clear },
-            Token::Delay => { self.advance(); self.expect(&Token::LParen); let e = self.parse_expr(); self.expect(&Token::RParen); self.expect(&Token::Semicolon); Stmt::Delay(e) },
-            Token::Beep  => { self.advance(); self.expect(&Token::LParen); let e = self.parse_expr(); self.expect(&Token::RParen); self.expect(&Token::Semicolon); Stmt::Beep(e) },
+            Token::If => self.parse_if(),
+            Token::Loop => {
+                self.advance();
+                let body = self.parse_block();
+                Stmt::Loop(body)
+            }
+            Token::While => self.parse_while(),
+            Token::Clear => {
+                self.advance();
+                self.expect(&Token::LParen);
+                self.expect(&Token::RParen);
+                self.expect(&Token::Semicolon);
+                Stmt::Clear
+            }
+            Token::Delay => {
+                self.advance();
+                self.expect(&Token::LParen);
+                let e = self.parse_expr();
+                self.expect(&Token::RParen);
+                self.expect(&Token::Semicolon);
+                Stmt::Delay(e)
+            }
+            Token::Beep => {
+                self.advance();
+                self.expect(&Token::LParen);
+                let e = self.parse_expr();
+                self.expect(&Token::RParen);
+                self.expect(&Token::Semicolon);
+                Stmt::Beep(e)
+            }
             Token::Ident(_) => self.parse_assign_or_call(),
             other => fail(format!("unexpected token in statement: {:?}", other)),
         }
@@ -188,18 +226,20 @@ impl Parser {
                 let expr = self.parse_expr();
                 self.expect(&Token::Semicolon);
                 Stmt::Assign(name, expr)
-            },
+            }
             Token::LParen => {
                 self.advance();
                 let mut args = Vec::new();
                 while !self.check(&Token::RParen) {
                     args.push(self.parse_expr());
-                    if self.check(&Token::Comma) { self.advance(); }
+                    if self.check(&Token::Comma) {
+                        self.advance();
+                    }
                 }
                 self.expect(&Token::RParen);
                 self.expect(&Token::Semicolon);
                 Stmt::Call(name, args)
-            },
+            }
             other => fail(format!("expected = or ( after ident, got {:?}", other)),
         }
     }
@@ -219,7 +259,10 @@ impl Parser {
             let c = self.parse_expr();
             self.expect(&Token::RParen);
             let b = self.parse_block();
-            elseifs.push(ElseIf { condition: c, body: b });
+            elseifs.push(ElseIf {
+                condition: c,
+                body: b,
+            });
         }
         if self.check(&Token::Else) {
             self.advance();
@@ -247,19 +290,19 @@ impl Parser {
         let mut left = self.parse_unary();
         loop {
             let op = match self.peek() {
-                Token::Plus    => Op::Add,
-                Token::Minus   => Op::Sub,
-                Token::Star    => Op::Mul,
-                Token::Slash   => Op::Div,
+                Token::Plus => Op::Add,
+                Token::Minus => Op::Sub,
+                Token::Star => Op::Mul,
+                Token::Slash => Op::Div,
                 Token::Percent => Op::Mod,
-                Token::EqEq    => Op::EqEq,
-                Token::NotEq   => Op::NotEq,
-                Token::Lt      => Op::Lt,
-                Token::Gt      => Op::Gt,
-                Token::LtEq    => Op::LtEq,
-                Token::GtEq    => Op::GtEq,
-                Token::And     => Op::And,
-                Token::Or      => Op::Or,
+                Token::EqEq => Op::EqEq,
+                Token::NotEq => Op::NotEq,
+                Token::Lt => Op::Lt,
+                Token::Gt => Op::Gt,
+                Token::LtEq => Op::LtEq,
+                Token::GtEq => Op::GtEq,
+                Token::And => Op::And,
+                Token::Or => Op::Or,
                 _ => break,
             };
             self.advance();
@@ -279,18 +322,24 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Expr {
         match self.peek().clone() {
-            Token::Int(n)  => { self.advance(); Expr::Int(n) },
-            Token::Bool(b) => { self.advance(); Expr::Bool(b) },
-            Token::LParen  => {
+            Token::Int(n) => {
+                self.advance();
+                Expr::Int(n)
+            }
+            Token::Bool(b) => {
+                self.advance();
+                Expr::Bool(b)
+            }
+            Token::LParen => {
                 self.advance();
                 let e = self.parse_expr();
                 self.expect(&Token::RParen);
                 e
-            },
+            }
             Token::Not => {
                 self.advance();
                 Expr::Not(Box::new(self.parse_primary()))
-            },
+            }
             Token::Draw => {
                 self.advance();
                 self.expect(&Token::LParen);
@@ -304,7 +353,7 @@ impl Parser {
                 };
                 self.expect(&Token::RParen);
                 Expr::Draw(Box::new(x), Box::new(y), sprite)
-            },
+            }
             Token::DrawDigit => {
                 self.advance();
                 self.expect(&Token::LParen);
@@ -315,23 +364,33 @@ impl Parser {
                 let n = self.parse_expr();
                 self.expect(&Token::RParen);
                 Expr::DrawDigit(Box::new(x), Box::new(y), Box::new(n))
-            },
-            Token::GetKey => { self.advance(); self.expect(&Token::LParen); self.expect(&Token::RParen); Expr::GetKey },
-            Token::GetDelay => { self.advance(); self.expect(&Token::LParen); self.expect(&Token::RParen); Expr::GetDelay },
+            }
+            Token::GetKey => {
+                self.advance();
+                self.expect(&Token::LParen);
+                self.expect(&Token::RParen);
+                Expr::GetKey
+            }
+            Token::GetDelay => {
+                self.advance();
+                self.expect(&Token::LParen);
+                self.expect(&Token::RParen);
+                Expr::GetDelay
+            }
             Token::KeyPressed => {
                 self.advance();
                 self.expect(&Token::LParen);
                 let e = self.parse_expr();
                 self.expect(&Token::RParen);
                 Expr::KeyPressed(Box::new(e))
-            },
+            }
             Token::Rand => {
                 self.advance();
                 self.expect(&Token::LParen);
                 let e = self.parse_expr();
                 self.expect(&Token::RParen);
                 Expr::Rand(Box::new(e))
-            },
+            }
             Token::Ident(n) => {
                 let n = n.clone();
                 self.advance();
@@ -340,14 +399,16 @@ impl Parser {
                     let mut args = Vec::new();
                     while !self.check(&Token::RParen) {
                         args.push(self.parse_expr());
-                        if self.check(&Token::Comma) { self.advance(); }
+                        if self.check(&Token::Comma) {
+                            self.advance();
+                        }
                     }
                     self.expect(&Token::RParen);
                     Expr::Call(n, args)
                 } else {
                     Expr::Var(n)
                 }
-            },
+            }
             other => fail(format!("unexpected token in expression: {:?}", other)),
         }
     }

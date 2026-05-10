@@ -37,7 +37,7 @@ impl Codegen {
     }
 
     fn patch(&mut self, offset: usize, opcode: u16) {
-        self.rom[offset]     = (opcode >> 8) as u8;
+        self.rom[offset] = (opcode >> 8) as u8;
         self.rom[offset + 1] = (opcode & 0xFF) as u8;
     }
 
@@ -46,7 +46,9 @@ impl Codegen {
     }
 
     fn reg(&self, name: &str) -> u8 {
-        *self.registers.get(name)
+        *self
+            .registers
+            .get(name)
             .unwrap_or_else(|| fail(format!("no register for variable: {}", name)))
     }
 
@@ -81,7 +83,8 @@ impl Codegen {
             let addr = ROM_START + pos;
             self.sprite_addrs.insert(sprite.name.clone(), addr);
             let bytes = self.load_sprite(sprite);
-            self.sprite_heights.insert(sprite.name.clone(), bytes.len() as u8);
+            self.sprite_heights
+                .insert(sprite.name.clone(), bytes.len() as u8);
             pos += bytes.len() as u16;
             for b in bytes {
                 self.rom.push(b);
@@ -132,10 +135,8 @@ impl Codegen {
     fn load_sprite(&self, sprite: &SpriteDecl) -> Vec<u8> {
         match &sprite.data {
             SpriteData::Inline(b) => b.clone(),
-            SpriteData::File(path) => {
-                std::fs::read(path)
-                    .unwrap_or_else(|_| fail(format!("could not read sprite file: {}", path)))
-            },
+            SpriteData::File(path) => std::fs::read(path)
+                .unwrap_or_else(|_| fail(format!("could not read sprite file: {}", path))),
         }
     }
 
@@ -179,43 +180,43 @@ impl Codegen {
             Stmt::Assign(name, expr) => {
                 let r = self.reg(name);
                 self.emit_load_expr(r, expr);
-            },
+            }
 
             Stmt::If(cond, body, elseifs, else_body) => {
                 self.emit_if(cond, body, elseifs, else_body.as_deref());
-            },
+            }
 
             Stmt::Loop(body) => {
                 let loop_start = self.current_addr();
                 self.emit_block(body);
                 self.emit(0x1000 | loop_start); // JP loop_start forever
-            },
+            }
 
             Stmt::While(cond, body) => {
                 self.emit_while(cond, body);
-            },
+            }
 
             Stmt::Call(name, args) => {
                 self.emit_fn_call(name, args);
-            },
+            }
 
             Stmt::Clear => {
                 self.emit(0x00E0);
-            },
+            }
 
             Stmt::Delay(e) => {
                 let r = self.alloc_reg();
                 self.emit_load_expr(r, e);
                 self.emit(0xF015 | ((r as u16) << 8));
                 self.free_regs(1);
-            },
+            }
 
             Stmt::Beep(e) => {
                 let r = self.alloc_reg();
                 self.emit_load_expr(r, e);
                 self.emit(0xF018 | ((r as u16) << 8));
                 self.free_regs(1);
-            },
+            }
         }
     }
 
@@ -281,10 +282,8 @@ impl Codegen {
                 let offset = self.rom.len();
                 self.emit(0x1000); // JP skip body
                 offset
-            },
-            Expr::BinOp(left, op, right) => {
-                self.emit_comparison_jump(left, op, right)
-            },
+            }
+            Expr::BinOp(left, op, right) => self.emit_comparison_jump(left, op, right),
             _ => {
                 // evaluate into temp reg, then check
                 let r = self.alloc_reg();
@@ -312,14 +311,14 @@ impl Codegen {
                 let o = self.rom.len();
                 self.emit(0x1000);
                 o
-            },
+            }
             Op::NotEq => {
                 // skip if VX != VY (true) -> execute body
                 self.emit(0x9000 | ((lr as u16) << 8) | ((rr as u16) << 4));
                 let o = self.rom.len();
                 self.emit(0x1000);
                 o
-            },
+            }
             Op::Lt => {
                 // VX < VY: VX - VY causes borrow, VF = 0
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
@@ -328,7 +327,7 @@ impl Codegen {
                 let o = self.rom.len();
                 self.emit(0x1000);
                 o
-            },
+            }
             Op::Gt => {
                 // VX > VY: VY - VX causes borrow, VF = 0
                 self.emit(0x8000 | ((rr as u16) << 8) | ((lr as u16) << 4) | 0x5);
@@ -336,7 +335,7 @@ impl Codegen {
                 let o = self.rom.len();
                 self.emit(0x1000);
                 o
-            },
+            }
             Op::LtEq => {
                 // VX <= VY: VY - VX no borrow, VF = 1
                 self.emit(0x8000 | ((rr as u16) << 8) | ((lr as u16) << 4) | 0x5);
@@ -344,7 +343,7 @@ impl Codegen {
                 let o = self.rom.len();
                 self.emit(0x1000);
                 o
-            },
+            }
             Op::GtEq => {
                 // VX >= VY: VX - VY no borrow, VF = 1
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
@@ -352,7 +351,7 @@ impl Codegen {
                 let o = self.rom.len();
                 self.emit(0x1000);
                 o
-            },
+            }
             _ => fail(format!("non-comparison op in comparison jump")),
         };
 
@@ -362,7 +361,9 @@ impl Codegen {
 
     // -- FUNCTION CALL --------------------------------------------
     fn emit_fn_call(&mut self, name: &str, args: &[Expr]) {
-        let addr = *self.fn_addrs.get(name)
+        let addr = *self
+            .fn_addrs
+            .get(name)
             .unwrap_or_else(|| fail(format!("unknown function: {}", name)));
 
         // copy arg expressions into registers starting at next_reg
@@ -382,23 +383,23 @@ impl Codegen {
             Expr::Int(n) => {
                 let byte = (*n as i8) as u8; // preserve two's complement
                 self.emit(0x6000 | ((dest as u16) << 8) | (byte as u16));
-            },
+            }
 
             Expr::Bool(b) => {
                 let n: u16 = if *b { 1 } else { 0 };
                 self.emit(0x6000 | ((dest as u16) << 8) | n);
-            },
+            }
 
             Expr::Var(name) => {
                 let src = self.reg(name);
                 if src != dest {
                     self.emit(0x8000 | ((dest as u16) << 8) | ((src as u16) << 4));
                 }
-            },
+            }
 
             Expr::BinOp(left, op, right) => {
                 self.emit_binop(dest, left, op, right);
-            },
+            }
 
             Expr::Not(e) => {
                 self.emit_load_expr(dest, e);
@@ -408,7 +409,7 @@ impl Codegen {
                 self.emit(0x6000 | ((tmp as u16) << 8) | 0x01); // tmp = 1
                 self.emit(0x8000 | ((dest as u16) << 8) | ((tmp as u16) << 4) | 0x3); // VX = VX XOR tmp
                 self.free_regs(1);
-            },
+            }
 
             Expr::Call(name, args) => {
                 // args go into next_reg .. next_reg+n-1
@@ -421,23 +422,28 @@ impl Codegen {
                 if ret_reg != dest {
                     self.emit(0x8000 | ((dest as u16) << 8) | ((ret_reg as u16) << 4));
                 }
-            },
+            }
 
             Expr::Draw(x, y, sprite_name) => {
                 let xr = self.alloc_reg();
                 let yr = self.alloc_reg();
                 self.emit_load_expr(xr, x);
                 self.emit_load_expr(yr, y);
-                let addr = *self.sprite_addrs.get(sprite_name.as_str())
+                let addr = *self
+                    .sprite_addrs
+                    .get(sprite_name.as_str())
                     .unwrap_or_else(|| fail(format!("sprite address not found: {}", sprite_name)));
-                let height = *self.sprite_heights.get(sprite_name.as_str())
-                    .unwrap_or_else(|| fail(format!("sprite height not found: {}", sprite_name))) as u16;
+                let height = *self
+                    .sprite_heights
+                    .get(sprite_name.as_str())
+                    .unwrap_or_else(|| fail(format!("sprite height not found: {}", sprite_name)))
+                    as u16;
                 self.emit(0xA000 | addr);
                 self.emit(0xD000 | ((xr as u16) << 8) | ((yr as u16) << 4) | height);
                 // VF = collision, copy to dest
                 self.emit(0x8000 | ((dest as u16) << 8) | (0xF << 4));
                 self.free_regs(2);
-            },
+            }
 
             Expr::DrawDigit(x, y, n) => {
                 let xr = self.alloc_reg();
@@ -453,24 +459,24 @@ impl Codegen {
                 // VF = collision
                 self.emit(0x8000 | ((dest as u16) << 8) | (0xF << 4));
                 self.free_regs(3);
-            },
+            }
 
             Expr::GetKey => {
                 self.emit(0xF00A | ((dest as u16) << 8));
-            },
+            }
 
             Expr::GetDelay => {
                 self.emit(0xF007 | ((dest as u16) << 8));
-            },
+            }
 
             Expr::KeyPressed(key) => {
                 let kr = self.alloc_reg();
                 self.emit_load_expr(kr, key);
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1
-                self.emit(0xE09E | ((kr as u16) << 8));           // skip if key pressed
+                self.emit(0xE09E | ((kr as u16) << 8)); // skip if key pressed
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0
                 self.free_regs(1);
-            },
+            }
 
             Expr::Rand(mask) => {
                 if let Expr::Int(n) = mask.as_ref() {
@@ -478,7 +484,7 @@ impl Codegen {
                 } else {
                     fail(format!("rand() mask must be an integer literal"));
                 }
-            },
+            }
         }
     }
 
@@ -493,11 +499,11 @@ impl Codegen {
             Op::Add => {
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x4);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((lr as u16) << 4));
-            },
+            }
             Op::Sub => {
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((lr as u16) << 4));
-            },
+            }
             Op::Mul => {
                 let counter = self.alloc_reg();
                 self.emit(0x6000 | ((dest as u16) << 8));
@@ -515,7 +521,7 @@ impl Codegen {
                 let end = self.current_addr();
                 self.patch(skip, 0x1000 | end);
                 self.free_regs(1); // free counter
-            },
+            }
             Op::Div => {
                 let counter = self.alloc_reg();
                 self.emit(0x6000 | ((counter as u16) << 8));
@@ -537,7 +543,7 @@ impl Codegen {
                 self.patch(skip, 0x1000 | end);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((counter as u16) << 4));
                 self.free_regs(1); // free counter
-            },
+            }
             Op::Mod => {
                 let loop_start = self.current_addr();
                 let tmp = self.alloc_reg();
@@ -552,19 +558,19 @@ impl Codegen {
                 let end = self.current_addr();
                 self.patch(skip, 0x1000 | end);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((lr as u16) << 4));
-            },
+            }
             Op::EqEq => {
                 // dest = 0; skip to dest=1 if VX == VY (5XY0 skips if equal)
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x5000 | ((lr as u16) << 8) | ((rr as u16) << 4));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
-            },
+            }
             Op::NotEq => {
                 // dest = 0; skip to dest=1 if VX != VY (9XY0 skips if not equal)
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x9000 | ((lr as u16) << 8) | ((rr as u16) << 4));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
-            },
+            }
             Op::Lt => {
                 // VX - VY: VF=0 means borrow (VX < VY), VF=1 means no borrow
                 // dest=0; SE VF,0 skips to dest=1 when borrow occurred (true)
@@ -572,28 +578,28 @@ impl Codegen {
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
                 self.emit(0x3F00); // SE VF, 0 — skip if borrow (lt is true)
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
-            },
+            }
             Op::Gt => {
                 // VY - VX: VF=0 means borrow (VY < VX i.e. VX > VY)
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x8000 | ((rr as u16) << 8) | ((lr as u16) << 4) | 0x5);
                 self.emit(0x3F00); // SE VF, 0
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
-            },
+            }
             Op::LtEq => {
                 // VY - VX: VF=1 means no borrow (VY >= VX i.e. VX <= VY)
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x8000 | ((rr as u16) << 8) | ((lr as u16) << 4) | 0x5);
                 self.emit(0x3F00 | 0x01); // SE VF, 1 — skip if no borrow (le is true)
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
-            },
+            }
             Op::GtEq => {
                 // VX - VY: VF=1 means no borrow (VX >= VY)
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
                 self.emit(0x3F00 | 0x01); // SE VF, 1
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
-            },
+            }
 
             // FIX 2: Op::And was logically NAND (SNE on left inverted the result for VL=false).
             // New approach: assume true, then clear to false if either operand is false.
@@ -604,11 +610,11 @@ impl Codegen {
             //   dest = 0  — VR was false: done
             Op::And => {
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1 (assume true)
-                self.emit(0x3000 | ((lr as u16) << 8) | 0x01);   // SE VL, 1 — skip if VL true
+                self.emit(0x3000 | ((lr as u16) << 8) | 0x01); // SE VL, 1 — skip if VL true
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (VL false)
-                self.emit(0x3000 | ((rr as u16) << 8) | 0x01);   // SE VR, 1 — skip if VR true
+                self.emit(0x3000 | ((rr as u16) << 8) | 0x01); // SE VR, 1 — skip if VR true
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (VR false)
-            },
+            }
 
             // FIX 3: Op::Or was broken — two chained SE instructions can't correctly implement OR.
             // When VL=false and VR=true, the first SE fell through to the second SE which then
@@ -621,10 +627,10 @@ impl Codegen {
             //   dest = 1
             Op::Or => {
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (assume false)
-                self.emit(0x3000 | ((lr as u16) << 8) | 0x01);   // SE VL, 1 — skip SNE if VL true
-                self.emit(0x4000 | ((rr as u16) << 8) | 0x01);   // SNE VR, 1 — skip dest=1 if VR false
+                self.emit(0x3000 | ((lr as u16) << 8) | 0x01); // SE VL, 1 — skip SNE if VL true
+                self.emit(0x4000 | ((rr as u16) << 8) | 0x01); // SNE VR, 1 — skip dest=1 if VR false
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1
-            },
+            }
         }
 
         self.free_regs(2);

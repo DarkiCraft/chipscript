@@ -64,17 +64,18 @@ impl Analyzer {
             // validate height (CHIP-8 limit: max 15 rows)
             let height = match &sprite.data {
                 SpriteData::Inline(bytes) => bytes.len(),
-                SpriteData::File(path) => {
-                    std::fs::metadata(path)
-                        .map(|m| m.len() as usize)
-                        .unwrap_or(0)
-                }
+                SpriteData::File(path) => std::fs::metadata(path)
+                    .map(|m| m.len() as usize)
+                    .unwrap_or(0),
             };
             if height == 0 {
                 fail(format!("sprite '{}' is empty", sprite.name));
             }
             if height > 15 {
-                fail(format!("sprite '{}' is {} rows tall, max is 15 (CHIP-8 hardware limit)", sprite.name, height));
+                fail(format!(
+                    "sprite '{}' is {} rows tall, max is 15 (CHIP-8 hardware limit)",
+                    sprite.name, height
+                ));
             }
             self.sprites.push(sprite.name.clone());
         }
@@ -83,7 +84,10 @@ impl Analyzer {
     // -- VARS -----------------------------------------------------
     fn collect_vars(&mut self, program: &Program) {
         if program.vars.len() > 15 {
-            fail(format!("too many variables! max is 15, you declared {}", program.vars.len()));
+            fail(format!(
+                "too many variables! max is 15, you declared {}",
+                program.vars.len()
+            ));
         }
         for var in &program.vars {
             let t = self.type_of_expr(&var.value);
@@ -94,7 +98,8 @@ impl Analyzer {
     // -- FUNCTIONS ------------------------------------------------
     fn collect_functions(&mut self, program: &Program) {
         for f in &program.functions {
-            self.functions.insert(f.name.clone(), (f.args.clone(), f.ret.clone()));
+            self.functions
+                .insert(f.name.clone(), (f.args.clone(), f.ret.clone()));
         }
     }
 
@@ -115,14 +120,20 @@ impl Analyzer {
         match stmt {
             Stmt::Assign(name, expr) => {
                 // variable must exist
-                let var_type = self.vars.get(name).cloned()
+                let var_type = self
+                    .vars
+                    .get(name)
+                    .cloned()
                     .unwrap_or_else(|| fail(format!("undeclared variable: {}", name)));
                 // type of expression must match
                 let expr_type = self.type_of_expr(expr);
                 if var_type != expr_type {
-                    fail(format!("type mismatch: '{}' is {:?} but you assigned {:?}", name, var_type, expr_type));
+                    fail(format!(
+                        "type mismatch: '{}' is {:?} but you assigned {:?}",
+                        name, var_type, expr_type
+                    ));
                 }
-            },
+            }
             Stmt::If(cond, body, elseifs, else_body) => {
                 // condition must be bool
                 let t = self.type_of_expr(cond);
@@ -140,49 +151,59 @@ impl Analyzer {
                 if let Some(b) = else_body {
                     self.analyze_block(b);
                 }
-            },
+            }
             Stmt::Loop(body) => {
                 self.analyze_block(body);
-            },
+            }
             Stmt::While(cond, body) => {
                 let t = self.type_of_expr(cond);
                 if t != Type::Bool {
                     fail(format!("while condition must be bool, got {:?}", t));
                 }
                 self.analyze_block(body);
-            },
+            }
             Stmt::Call(name, args) => {
                 self.check_fn_call(name, args);
-            },
-            Stmt::Clear => {},
+            }
+            Stmt::Clear => {}
             Stmt::Delay(e) => {
                 let t = self.type_of_expr(e);
                 if t != Type::Int {
                     fail(format!("delay() expects int, got {:?}", t));
                 }
-            },
+            }
             Stmt::Beep(e) => {
                 let t = self.type_of_expr(e);
                 if t != Type::Int {
                     fail(format!("beep() expects int, got {:?}", t));
                 }
-            },
+            }
         }
     }
 
     // -- FUNCTION CALL CHECK --------------------------------------
     fn check_fn_call(&self, name: &str, args: &Vec<Expr>) {
-        let (params, _) = self.functions.get(name)
+        let (params, _) = self
+            .functions
+            .get(name)
             .unwrap_or_else(|| fail(format!("undeclared function: {}", name)));
         if args.len() != params.len() {
-            fail(format!("function '{}' expects {} args, got {}", name, params.len(), args.len()));
+            fail(format!(
+                "function '{}' expects {} args, got {}",
+                name,
+                params.len(),
+                args.len()
+            ));
         }
         // check register budget
         // currently allocated vars + args + return slot must be <= 15
         let slots_needed = args.len() + 1; // args + return value
         let slots_used = self.vars.len();
         if slots_used + slots_needed > 15 {
-            fail(format!("not enough register slots to call '{}': {} used + {} needed > 15", name, slots_used, slots_needed));
+            fail(format!(
+                "not enough register slots to call '{}': {} used + {} needed > 15",
+                name, slots_used, slots_needed
+            ));
         }
     }
 
@@ -191,66 +212,84 @@ impl Analyzer {
         match expr {
             Expr::Int(_) => Type::Int,
             Expr::Bool(_) => Type::Bool,
-            Expr::Var(name) => {
-                self.vars.get(name).cloned()
-                    .unwrap_or_else(|| fail(format!("undeclared variable: {}", name)))
-            },
+            Expr::Var(name) => self
+                .vars
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| fail(format!("undeclared variable: {}", name))),
             Expr::BinOp(left, op, right) => {
                 let lt = self.type_of_expr(left);
                 let rt = self.type_of_expr(right);
                 match op {
                     // arithmetic - both must be int, produces int
                     Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Mod => {
-                        if lt != Type::Int { fail(format!("arithmetic requires int operands")); }
-                        if rt != Type::Int { fail(format!("arithmetic requires int operands")); }
+                        if lt != Type::Int {
+                            fail(format!("arithmetic requires int operands"));
+                        }
+                        if rt != Type::Int {
+                            fail(format!("arithmetic requires int operands"));
+                        }
                         Type::Int
-                    },
+                    }
                     // comparison - both must be same type, produces bool
                     Op::EqEq | Op::NotEq | Op::Lt | Op::Gt | Op::LtEq | Op::GtEq => {
-                        if lt != rt { fail(format!("comparison between different types: {:?} and {:?}", lt, rt)); }
+                        if lt != rt {
+                            fail(format!(
+                                "comparison between different types: {:?} and {:?}",
+                                lt, rt
+                            ));
+                        }
                         Type::Bool
-                    },
+                    }
                     // logic - both must be bool, produces bool
                     Op::And | Op::Or => {
-                        if lt != Type::Bool { fail(format!("'and'/'or' requires bool operands")); }
-                        if rt != Type::Bool { fail(format!("'and'/'or' requires bool operands")); }
+                        if lt != Type::Bool {
+                            fail(format!("'and'/'or' requires bool operands"));
+                        }
+                        if rt != Type::Bool {
+                            fail(format!("'and'/'or' requires bool operands"));
+                        }
                         Type::Bool
-                    },
+                    }
                 }
-            },
+            }
             Expr::Not(e) => {
                 let t = self.type_of_expr(e);
-                if t != Type::Bool { fail(format!("'not' requires bool operand, got {:?}", t)); }
+                if t != Type::Bool {
+                    fail(format!("'not' requires bool operand, got {:?}", t));
+                }
                 Type::Bool
-            },
+            }
             Expr::Call(name, args) => {
                 self.check_fn_call(name, args);
                 // function calls return int for now
                 // (we dont have bool-returning user functions)
                 Type::Int
-            },
+            }
             Expr::Draw(_, _, sprite) => {
                 if !self.sprites.contains(sprite) {
                     fail(format!("undeclared sprite: {}", sprite));
                 }
                 Type::Bool
-            },
+            }
             Expr::DrawDigit(_, _, n) => {
                 let t = self.type_of_expr(n);
                 if t != Type::Int {
                     fail(format!("drawdigit() third arg must be int"));
                 }
                 Type::Bool
-            },
-            Expr::GetKey    => Type::Int,
-            Expr::GetDelay  => Type::Int,
+            }
+            Expr::GetKey => Type::Int,
+            Expr::GetDelay => Type::Int,
             Expr::KeyPressed(_) => Type::Bool,
             Expr::Rand(mask) => {
                 if !matches!(mask.as_ref(), Expr::Int(_)) {
-                    fail(format!("rand() mask must be an integer literal, e.g. rand(0xFF)"));
+                    fail(format!(
+                        "rand() mask must be an integer literal, e.g. rand(0xFF)"
+                    ));
                 }
                 Type::Int
-            },
+            }
         }
     }
 }

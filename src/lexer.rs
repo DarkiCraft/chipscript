@@ -3,48 +3,48 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     // -- LITERALS ------------------------------
-    Int(i16),          // 10, 255
-    Bool(bool),        // true, false
-    Ident(String),     // variable names, function names
+    Int(i16),      // 10, 255
+    Bool(bool),    // true, false
+    Ident(String), // variable names, function names
 
     // -- KEYWORDS ------------------------------
-    Vars,              // vars
-    Sprites,           // sprite
-    Fn,                // fn
-    Main,              // main
-    If,                // if
-    Elif,              // elif
-    Else,              // else
-    While,             // while
-    Loop,              // loop
+    Vars,    // vars
+    Sprites, // sprite
+    Fn,      // fn
+    Main,    // main
+    If,      // if
+    Elif,    // elif
+    Else,    // else
+    While,   // while
+    Loop,    // loop
 
     // -- BUILTINS ------------------------------
-    Draw,              // draw
-    DrawDigit,         // draw builtin digit sprites
-    Clear,             // clear
-    Delay,             // delay
-    GetDelay,          // getdelay
-    Beep,              // beep
-    GetKey,            // getkey
-    KeyPressed,        // keypressed
-    Rand,              // rand
+    Draw,       // draw
+    DrawDigit,  // draw builtin digit sprites
+    Clear,      // clear
+    Delay,      // delay
+    GetDelay,   // getdelay
+    Beep,       // beep
+    GetKey,     // getkey
+    KeyPressed, // keypressed
+    Rand,       // rand
 
     // -- OPERATORS ------------------------------
-    Plus,              // +
-    Minus,             // -
-    Star,              // *
-    Slash,             // /
-    Percent,           // %
-    Equals,            // =
-    EqEq,              // ==
-    NotEq,             // !=
-    Lt,                // <
-    Gt,                // >
-    LtEq,              // <=
-    GtEq,              // >=
-    And,               // and
-    Or,                // or
-    Not,               // not
+    Plus,    // +
+    Minus,   // -
+    Star,    // *
+    Slash,   // /
+    Percent, // %
+    Equals,  // =
+    EqEq,    // ==
+    NotEq,   // !=
+    Lt,      // <
+    Gt,      // >
+    LtEq,    // <=
+    GtEq,    // >=
+    And,     // and
+    Or,      // or
+    Not,     // not
 
     // -- DELIMITERS ------------------------------
     LParen,            // (
@@ -61,17 +61,18 @@ pub enum Token {
     StringLit(String), // "file.spr"
 
     // -- SPECIAL ------------------------------
-    EOF,               // end of file
+    EOF, // end of file
 }
 
 pub fn lex(source: String) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut chars = source.chars().peekable();
 
-    while let Some(c) = chars.next() {  // grab next char, stop if none left
+    while let Some(c) = chars.next() {
+        // grab next char, stop if none left
         match c {
             // skip whitespace
-            ' ' | '\t' | '\n' | '\r' => {},
+            ' ' | '\t' | '\n' | '\r' => {}
 
             // single character tokens
             '(' => tokens.push(Token::LParen),
@@ -105,7 +106,7 @@ pub fn lex(source: String) -> Vec<Token> {
                 } else {
                     tokens.push(Token::Minus);
                 }
-            },
+            }
             '=' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
@@ -113,7 +114,7 @@ pub fn lex(source: String) -> Vec<Token> {
                 } else {
                     tokens.push(Token::Equals);
                 }
-            },
+            }
             '!' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
@@ -121,7 +122,7 @@ pub fn lex(source: String) -> Vec<Token> {
                 } else {
                     panic!("unexpected character '!'"); // ! alone is invalid in ChipScript
                 }
-            },
+            }
             '<' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
@@ -129,7 +130,7 @@ pub fn lex(source: String) -> Vec<Token> {
                 } else {
                     tokens.push(Token::Lt);
                 }
-            },
+            }
             '>' => {
                 if chars.peek() == Some(&'=') {
                     chars.next();
@@ -137,27 +138,31 @@ pub fn lex(source: String) -> Vec<Token> {
                 } else {
                     tokens.push(Token::Gt);
                 }
-            },
+            }
             '/' => {
                 if chars.peek() == Some(&'/') {
                     // it's a comment! skip until end of line
                     while let Some(c) = chars.next() {
-                        if c == '\n' { break; }
+                        if c == '\n' {
+                            break;
+                        }
                     }
                 } else {
                     tokens.push(Token::Slash);
                 }
-            },
+            }
 
             // string literals "file.spr"
             '"' => {
                 let mut s = String::new();
                 while let Some(c) = chars.next() {
-                    if c == '"' { break; }
+                    if c == '"' {
+                        break;
+                    }
                     s.push(c);
                 }
                 tokens.push(Token::StringLit(s));
-            },
+            }
 
             // numbers
             '0'..='9' => {
@@ -186,7 +191,7 @@ pub fn lex(source: String) -> Vec<Token> {
                     let value: i16 = num.parse().expect("number too large!");
                     tokens.push(Token::Int(value));
                 }
-            },
+            }
 
             // hex literals 0xFF
             // (already handled by number case for '0', but we peek for 'x')
@@ -205,37 +210,37 @@ pub fn lex(source: String) -> Vec<Token> {
                 }
                 // now check if it's a keyword
                 let token = match ident.as_str() {
-                    "vars"       => Token::Vars,
-                    "fn"         => Token::Fn,
-                    "main"       => Token::Main,
-                    "if"         => Token::If,
-                    "elif"       => Token::Elif,
-                    "else"       => Token::Else,
-                    "loop"       => Token::Loop,
-                    "while"      => Token::While,
-                    "sprites"     => Token::Sprites,
-                    "true"       => Token::Bool(true),
-                    "false"      => Token::Bool(false),
-                    "and"        => Token::And,
-                    "or"         => Token::Or,
-                    "not"        => Token::Not,
-                    "draw"       => Token::Draw,
-                    "clear"      => Token::Clear,
-                    "delay"      => Token::Delay,
-                    "getdelay"   => Token::GetDelay,
-                    "beep"       => Token::Beep,
-                    "getkey"     => Token::GetKey,
+                    "vars" => Token::Vars,
+                    "fn" => Token::Fn,
+                    "main" => Token::Main,
+                    "if" => Token::If,
+                    "elif" => Token::Elif,
+                    "else" => Token::Else,
+                    "loop" => Token::Loop,
+                    "while" => Token::While,
+                    "sprites" => Token::Sprites,
+                    "true" => Token::Bool(true),
+                    "false" => Token::Bool(false),
+                    "and" => Token::And,
+                    "or" => Token::Or,
+                    "not" => Token::Not,
+                    "draw" => Token::Draw,
+                    "clear" => Token::Clear,
+                    "delay" => Token::Delay,
+                    "getdelay" => Token::GetDelay,
+                    "beep" => Token::Beep,
+                    "getkey" => Token::GetKey,
                     "keypressed" => Token::KeyPressed,
-                    "rand"       => Token::Rand,
-                    "drawdigit"  => Token::DrawDigit,
-                    _            => Token::Ident(ident), // not a keyword, it's a name
+                    "rand" => Token::Rand,
+                    "drawdigit" => Token::DrawDigit,
+                    _ => Token::Ident(ident), // not a keyword, it's a name
                 };
                 tokens.push(token);
-            },
+            }
 
             other => panic!("unexpected character: '{}'", other),
         }
-    }   
+    }
 
     tokens.push(Token::EOF);
     tokens

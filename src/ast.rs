@@ -19,15 +19,15 @@ pub struct SpriteDecl {
 
 #[derive(Debug, Clone)]
 pub enum SpriteData {
-    Inline(Vec<u8>),        // [0xF0, 0x90, ...]
-    File(String),           // "ship.spr"
+    Inline(Vec<u8>), // [0xF0, 0x90, ...]
+    File(String),    // "ship.spr"
 }
 
 // one line inside vars {}
 #[derive(Debug, Clone)]
 pub struct VarDecl {
     pub name: String,
-    pub value: Expr,        // the initial value
+    pub value: Expr, // the initial value
 }
 
 #[derive(Debug, Clone)]
@@ -40,15 +40,15 @@ pub struct FnDecl {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Assign(String, Expr),               // a = expr
-    If(Expr, Vec<Stmt>, Vec<ElseIf>, Option<Vec<Stmt>>),  // if / elif / else
-    Loop(Vec<Stmt>),                    // loop {}
-    While(Expr, Vec<Stmt>),             // while (cond) { }
-    Call(String, Vec<Expr>),            // standalone function call (return value discarded)
-    
-    Clear,                              // clear()
-    Delay(Expr),                        // delay(n)
-    Beep(Expr),                         // beep(n)
+    Assign(String, Expr),                                // a = expr
+    If(Expr, Vec<Stmt>, Vec<ElseIf>, Option<Vec<Stmt>>), // if / elif / else
+    Loop(Vec<Stmt>),                                     // loop {}
+    While(Expr, Vec<Stmt>),                              // while (cond) { }
+    Call(String, Vec<Expr>), // standalone function call (return value discarded)
+
+    Clear,       // clear()
+    Delay(Expr), // delay(n)
+    Beep(Expr),  // beep(n)
 }
 
 // the elif branches
@@ -61,24 +61,34 @@ pub struct ElseIf {
 // an expression produces a value
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Int(i16),                            // 10
-    Bool(bool),                         // true / false
-    Var(String),                        // a
-    BinOp(Box<Expr>, Op, Box<Expr>),    // a + b, a == b
-    Not(Box<Expr>),                     // not x
-    
-    Call(String, Vec<Expr>),            // add(a, b)
-    Draw(Box<Expr>, Box<Expr>, String), // draw(x, y, sprite) -> bool
+    Int(i16),                        // 10
+    Bool(bool),                      // true / false
+    Var(String),                     // a
+    BinOp(Box<Expr>, Op, Box<Expr>), // a + b, a == b
+    Not(Box<Expr>),                  // not x
+
+    Call(String, Vec<Expr>),                    // add(a, b)
+    Draw(Box<Expr>, Box<Expr>, String),         // draw(x, y, sprite) -> bool
     DrawDigit(Box<Expr>, Box<Expr>, Box<Expr>), // drawdigit(x, y, n) -> bool
-    GetKey,                             // getkey() -> int
-    GetDelay,                           // getdelay() -> int
-    KeyPressed(Box<Expr>),              // keypressed(5) -> bool
-    Rand(Box<Expr>),                    // rand(0xFF) -> int
+    GetKey,                                     // getkey() -> int
+    GetDelay,                                   // getdelay() -> int
+    KeyPressed(Box<Expr>),                      // keypressed(5) -> bool
+    Rand(Box<Expr>),                            // rand(0xFF) -> int
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
-    Add, Sub, Mul, Div, Mod,            // arithmetic
-    EqEq, NotEq, Lt, Gt, LtEq, GtEq,    // comparison
-    And, Or,                            // logic
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod, // arithmetic
+    EqEq,
+    NotEq,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq, // comparison
+    And,
+    Or, // logic
 }

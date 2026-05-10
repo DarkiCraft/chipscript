@@ -1,10 +1,10 @@
+mod analyzer;
+mod ast;
+mod codegen;
 mod error;
 mod lexer;
-mod ast;
-mod parser;
-mod analyzer;
 mod optimizer;
-mod codegen;
+mod parser;
 
 use std::process;
 
@@ -29,11 +29,11 @@ Examples:
 ";
 
 struct Opts {
-    input:      String,
-    output:     Option<String>,
-    verbose:    bool,
+    input: String,
+    output: Option<String>,
+    verbose: bool,
     no_analyze: bool,
-    no_opt:     bool,
+    no_opt: bool,
 }
 
 fn parse_args() -> Opts {
@@ -44,11 +44,11 @@ fn parse_args() -> Opts {
         process::exit(1);
     }
 
-    let mut input      = None;
-    let mut output     = None;
-    let mut verbose    = false;
+    let mut input = None;
+    let mut output = None;
+    let mut verbose = false;
     let mut no_analyze = false;
-    let mut no_opt     = false;
+    let mut no_opt = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -85,7 +85,10 @@ fn parse_args() -> Opts {
             }
             _ => {
                 if input.is_some() {
-                    eprintln!("error: unexpected argument '{}' (input file already set)", args[i]);
+                    eprintln!(
+                        "error: unexpected argument '{}' (input file already set)",
+                        args[i]
+                    );
                     process::exit(1);
                 }
                 input = Some(args[i].clone());
@@ -103,7 +106,13 @@ fn parse_args() -> Opts {
         }
     };
 
-    Opts { input, output, verbose, no_analyze, no_opt }
+    Opts {
+        input,
+        output,
+        verbose,
+        no_analyze,
+        no_opt,
+    }
 }
 
 fn main() {
@@ -119,13 +128,14 @@ fn main() {
     });
 
     // ── read source ──────────────────────────────────────────────
-    let source = std::fs::read_to_string(&opts.input)
-        .unwrap_or_else(|e| {
-            eprintln!("error: could not read '{}': {}", opts.input, e);
-            process::exit(1);
-        });
+    let source = std::fs::read_to_string(&opts.input).unwrap_or_else(|e| {
+        eprintln!("error: could not read '{}': {}", opts.input, e);
+        process::exit(1);
+    });
 
-    if opts.verbose { eprintln!("[1/5] lexing '{}'", opts.input); }
+    if opts.verbose {
+        eprintln!("[1/5] lexing '{}'", opts.input);
+    }
 
     // ── lex ──────────────────────────────────────────────────────
     let tokens = lexer::lex(source);
@@ -140,8 +150,12 @@ fn main() {
     let mut program = parser.parse();
 
     if opts.verbose {
-        eprintln!("      {} sprite(s), {} var(s), {} function(s)",
-            program.sprites.len(), program.vars.len(), program.functions.len());
+        eprintln!(
+            "      {} sprite(s), {} var(s), {} function(s)",
+            program.sprites.len(),
+            program.vars.len(),
+            program.functions.len()
+        );
         if opts.no_analyze {
             eprintln!("[3/5] analysis skipped (--no-analyze)");
         } else {
@@ -157,18 +171,26 @@ fn main() {
 
     // ── optimize ─────────────────────────────────────────────────
     if opts.no_opt {
-        if opts.verbose { eprintln!("[4/5] optimization skipped (--no-opt)"); }
+        if opts.verbose {
+            eprintln!("[4/5] optimization skipped (--no-opt)");
+        }
     } else {
-        if opts.verbose { eprintln!("[4/5] optimizing"); }
+        if opts.verbose {
+            eprintln!("[4/5] optimizing");
+        }
         let mut opt = optimizer::Optimizer::new();
         opt.optimize(&mut program);
         if opts.verbose {
-            eprintln!("      {} constant fold(s), {} dead branch(es) eliminated, {} strength reduction(s)",
-                opt.folds, opt.dce, opt.reductions);
+            eprintln!(
+                "      {} constant fold(s), {} dead branch(es) eliminated, {} strength reduction(s)",
+                opt.folds, opt.dce, opt.reductions
+            );
         }
     }
 
-    if opts.verbose { eprintln!("[5/5] generating ROM"); }
+    if opts.verbose {
+        eprintln!("[5/5] generating ROM");
+    }
 
     // ── codegen ──────────────────────────────────────────────────
     let mut codegen = codegen::Codegen::new();
@@ -178,7 +200,11 @@ fn main() {
     if let Some(parent) = std::path::Path::new(&out_path).parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-                eprintln!("error: could not create output directory '{}': {}", parent.display(), e);
+                eprintln!(
+                    "error: could not create output directory '{}': {}",
+                    parent.display(),
+                    e
+                );
                 process::exit(1);
             });
         }
@@ -189,7 +215,9 @@ fn main() {
         process::exit(1);
     });
 
-    if opts.verbose { eprintln!("      {} bytes written", rom.len()); }
+    if opts.verbose {
+        eprintln!("      {} bytes written", rom.len());
+    }
 
     println!("ok  {} -> {} ({} bytes)", opts.input, out_path, rom.len());
 }
