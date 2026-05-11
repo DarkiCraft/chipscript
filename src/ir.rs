@@ -4,9 +4,9 @@
 
 #[derive(Debug, Clone)]
 pub struct Quad {
-    pub op:     IrOp,
-    pub arg1:   Option<String>,
-    pub arg2:   Option<String>,
+    pub op: IrOp,
+    pub arg1: Option<String>,
+    pub arg2: Option<String>,
     pub result: Option<String>,
 }
 
@@ -14,8 +14,8 @@ impl Quad {
     pub fn new(op: IrOp, arg1: Option<&str>, arg2: Option<&str>, result: Option<&str>) -> Self {
         Quad {
             op,
-            arg1:   arg1.map(str::to_string),
-            arg2:   arg2.map(str::to_string),
+            arg1: arg1.map(str::to_string),
+            arg2: arg2.map(str::to_string),
             result: result.map(str::to_string),
         }
     }
@@ -25,7 +25,7 @@ impl std::fmt::Display for Quad {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let a1 = self.arg1.as_deref().unwrap_or("_");
         let a2 = self.arg2.as_deref().unwrap_or("_");
-        let r  = self.result.as_deref().unwrap_or("_");
+        let r = self.result.as_deref().unwrap_or("_");
         write!(f, "({:?}, {}, {}, {})", self.op, a1, a2, r)
     }
 }
@@ -33,8 +33,8 @@ impl std::fmt::Display for Quad {
 #[derive(Debug, Clone)]
 pub enum IrOp {
     // Data movement
-    LoadImm,    // result = arg1 (immediate integer/bool)
-    Copy,       // result = arg1
+    LoadImm, // result = arg1 (immediate integer/bool)
+    Copy,    // result = arg1
 
     // Arithmetic
     Add,
@@ -46,7 +46,7 @@ pub enum IrOp {
     // Logic
     And,
     Or,
-    Not,        // result = !arg1
+    Not, // result = !arg1
 
     // Comparison  (result is a bool register)
     CmpEq,
@@ -57,10 +57,10 @@ pub enum IrOp {
     CmpGtEq,
 
     // Control flow
-    Label,      // arg1 = label name
-    Jump,       // arg1 = label
-    JumpFalse,  // if arg1 == false, jump to arg2
-    Call,       // arg1 = fn name, arg2 = arg count, result = return reg
+    Label,     // arg1 = label name
+    Jump,      // arg1 = label
+    JumpFalse, // if arg1 == false, jump to arg2
+    Call,      // arg1 = fn name, arg2 = arg count, result = return reg
     Return,
 
     // CHIP-8 specific

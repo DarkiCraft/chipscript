@@ -5,17 +5,17 @@ mod common;
 use common::compile;
 use common::compile_no_opt;
 
-    // Every test here runs the full pipeline without panicking.
+// Every test here runs the full pipeline without panicking.
 
-    #[test]
-    fn minimal_program() {
-        let rom = compile("main { clear(); }");
-        assert!(!rom.is_empty());
-    }
+#[test]
+fn minimal_program() {
+    let rom = compile("main { clear(); }");
+    assert!(!rom.is_empty());
+}
 
-    #[test]
-    fn bouncing_ball() {
-        let src = r#"
+#[test]
+fn bouncing_ball() {
+    let src = r#"
             sprites { ball = [0x3C, 0x7E, 0x7E, 0x3C]; }
             vars { bx = 32; by = 16; dx = 1; dy = 1; hit = false; }
             main {
@@ -30,13 +30,13 @@ use common::compile_no_opt;
                 }
             }
         "#;
-        let rom = compile(src);
-        assert!(!rom.is_empty());
-    }
+    let rom = compile(src);
+    assert!(!rom.is_empty());
+}
 
-    #[test]
-    fn keyboard_counter() {
-        let src = r#"
+#[test]
+fn keyboard_counter() {
+    let src = r#"
             vars { count = 0; k = 0; b = false; }
             main {
                 clear();
@@ -49,12 +49,12 @@ use common::compile_no_opt;
                 }
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn dice_roller() {
-        let src = r#"
+#[test]
+fn dice_roller() {
+    let src = r#"
             vars { roll = 0; k = 0; b = false; }
             fn roll_die(seed) -> result {
                 result = rand(0x07);
@@ -72,12 +72,12 @@ use common::compile_no_opt;
                 }
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn wandering_dot() {
-        let src = r#"
+#[test]
+fn wandering_dot() {
+    let src = r#"
             sprites { seg = [0xF0]; }
             vars { hx = 32; hy = 16; dx = 1; dy = 0; hit = false; r = 0; }
             main {
@@ -98,12 +98,12 @@ use common::compile_no_opt;
                 }
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn multiple_functions() {
-        let src = r#"
+#[test]
+fn multiple_functions() {
+    let src = r#"
             fn double(x) -> r { r = x + x; }
             fn triple(x) -> r { r = x + x; r = r + x; }
             vars { a = 0; b = 0; }
@@ -112,12 +112,12 @@ use common::compile_no_opt;
                 b = triple(3);
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn nested_if_elif_else() {
-        let src = r#"
+#[test]
+fn nested_if_elif_else() {
+    let src = r#"
             vars { x = 0; k = 0; }
             main {
                 k = getkey();
@@ -127,12 +127,12 @@ use common::compile_no_opt;
                 else { x = 0; }
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn while_loop_program() {
-        let src = r#"
+#[test]
+fn while_loop_program() {
+    let src = r#"
             vars { t = 0; }
             main {
                 delay(60);
@@ -141,12 +141,12 @@ use common::compile_no_opt;
                 clear();
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn all_arithmetic_ops() {
-        let src = r#"
+#[test]
+fn all_arithmetic_ops() {
+    let src = r#"
             vars { a = 0; b = 0; c = 0; }
             main {
                 a = a + 1;
@@ -156,12 +156,12 @@ use common::compile_no_opt;
                 b = c % 3;
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn all_comparison_ops() {
-        let src = r#"
+#[test]
+fn all_comparison_ops() {
+    let src = r#"
             vars { x = 0; b = false; }
             main {
                 b = (x == 0);
@@ -172,32 +172,40 @@ use common::compile_no_opt;
                 b = (x >= 5);
             }
         "#;
-        compile(src);
-    }
+    compile(src);
+}
 
-    #[test]
-    fn optimizer_reduces_rom_size_for_constant_mul() {
-        // x * 1 should be stripped; without opt it emits the full software loop
-        let src = "vars { x = 0; } main { x = x * 1; }";
-        let opt    = compile(src);
-        let no_opt = compile_no_opt(src);
-        assert!(opt.len() < no_opt.len(),
-            "optimizer should shrink ROM for x*1: opt={} no_opt={}", opt.len(), no_opt.len());
-    }
+#[test]
+fn optimizer_reduces_rom_size_for_constant_mul() {
+    // x * 1 should be stripped; without opt it emits the full software loop
+    let src = "vars { x = 0; } main { x = x * 1; }";
+    let opt = compile(src);
+    let no_opt = compile_no_opt(src);
+    assert!(
+        opt.len() < no_opt.len(),
+        "optimizer should shrink ROM for x*1: opt={} no_opt={}",
+        opt.len(),
+        no_opt.len()
+    );
+}
 
-    #[test]
-    fn optimizer_eliminates_dead_if() {
-        // if(false) removed entirely → smaller ROM
-        let src = "vars { x = 0; } main { if (false) { x = 99; x = 88; x = 77; } }";
-        let opt    = compile(src);
-        let no_opt = compile_no_opt(src);
-        assert!(opt.len() < no_opt.len(),
-            "optimizer should shrink ROM for if(false): opt={} no_opt={}", opt.len(), no_opt.len());
-    }
+#[test]
+fn optimizer_eliminates_dead_if() {
+    // if(false) removed entirely → smaller ROM
+    let src = "vars { x = 0; } main { if (false) { x = 99; x = 88; x = 77; } }";
+    let opt = compile(src);
+    let no_opt = compile_no_opt(src);
+    assert!(
+        opt.len() < no_opt.len(),
+        "optimizer should shrink ROM for if(false): opt={} no_opt={}",
+        opt.len(),
+        no_opt.len()
+    );
+}
 
-    #[test]
-    fn full_pipeline_produces_valid_rom_start() {
-        // All CHIP-8 ROMs must start with a JP at 0x200
-        let rom = compile("main { clear(); }");
-        assert_eq!(rom[0] & 0xF0, 0x10);
-    }
+#[test]
+fn full_pipeline_produces_valid_rom_start() {
+    // All CHIP-8 ROMs must start with a JP at 0x200
+    let rom = compile("main { clear(); }");
+    assert_eq!(rom[0] & 0xF0, 0x10);
+}

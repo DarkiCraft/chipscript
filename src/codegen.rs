@@ -8,7 +8,7 @@ use std::collections::HashMap;
 pub struct Codegen {
     rom: Vec<u8>,
     ir: Vec<Quad>,
-    ir_temp: u32, // counter for generating unique temp names
+    ir_temp: u32,  // counter for generating unique temp names
     ir_label: u32, // counter for generating unique label names
     registers: HashMap<String, u8>,
     sprite_addrs: HashMap<String, u16>,
@@ -115,7 +115,12 @@ impl Codegen {
                 .insert(sprite.name.clone(), bytes.len() as u8);
             pos += bytes.len() as u16;
             // IR: record where this sprite lives
-            self.quad(IrOp::SpriteData, Some(&sprite.name), Some(&addr.to_string()), None);
+            self.quad(
+                IrOp::SpriteData,
+                Some(&sprite.name),
+                Some(&addr.to_string()),
+                None,
+            );
             for b in bytes {
                 self.rom.push(b);
             }
@@ -320,7 +325,7 @@ impl Codegen {
     // -- WHILE ----------------------------------------------------
     fn emit_while(&mut self, cond: &Expr, body: &[Stmt]) {
         let loop_lbl = self.fresh_label();
-        let end_lbl  = self.fresh_label();
+        let end_lbl = self.fresh_label();
         self.quad(IrOp::Label, Some(&loop_lbl), None, None);
         let loop_start = self.current_addr();
         self.quad(IrOp::JumpFalse, Some("cond"), Some(&end_lbl), None);
@@ -345,22 +350,20 @@ impl Codegen {
                 self.emit(0x1000);
                 offset
             }
-            Expr::BinOp(left, op, right) => {
-                match op {
-                    Op::EqEq | Op::NotEq | Op::Lt | Op::Gt | Op::LtEq | Op::GtEq => {
-                        self.emit_comparison_jump(left, op, right)
-                    }
-                    _ => {
-                        let r = self.alloc_reg();
-                        self.emit_load_expr(r, cond);
-                        self.emit(0x3000 | ((r as u16) << 8) | 0x01);
-                        let offset = self.rom.len();
-                        self.emit(0x1000);
-                        self.free_regs(1);
-                        offset
-                    }
+            Expr::BinOp(left, op, right) => match op {
+                Op::EqEq | Op::NotEq | Op::Lt | Op::Gt | Op::LtEq | Op::GtEq => {
+                    self.emit_comparison_jump(left, op, right)
                 }
-            }
+                _ => {
+                    let r = self.alloc_reg();
+                    self.emit_load_expr(r, cond);
+                    self.emit(0x3000 | ((r as u16) << 8) | 0x01);
+                    let offset = self.rom.len();
+                    self.emit(0x1000);
+                    self.free_regs(1);
+                    offset
+                }
+            },
             _ => {
                 let r = self.alloc_reg();
                 self.emit_load_expr(r, cond);
@@ -504,7 +507,12 @@ impl Codegen {
             Expr::Draw(x, y, sprite_name) => {
                 let xr = self.alloc_reg();
                 let yr = self.alloc_reg();
-                self.quad(IrOp::Draw, Some(&format!("V{:X}", xr)), Some(&format!("V{:X}", yr)), Some(sprite_name));
+                self.quad(
+                    IrOp::Draw,
+                    Some(&format!("V{:X}", xr)),
+                    Some(&format!("V{:X}", yr)),
+                    Some(sprite_name),
+                );
                 self.emit_load_expr(xr, x);
                 self.emit_load_expr(yr, y);
                 let addr = *self
@@ -526,7 +534,12 @@ impl Codegen {
                 let xr = self.alloc_reg();
                 let yr = self.alloc_reg();
                 let nr = self.alloc_reg();
-                self.quad(IrOp::DrawDigit, Some(&format!("V{:X}", xr)), Some(&format!("V{:X}", yr)), Some(&format!("V{:X}", nr)));
+                self.quad(
+                    IrOp::DrawDigit,
+                    Some(&format!("V{:X}", xr)),
+                    Some(&format!("V{:X}", yr)),
+                    Some(&format!("V{:X}", nr)),
+                );
                 self.emit_load_expr(xr, x);
                 self.emit_load_expr(yr, y);
                 self.emit_load_expr(nr, n);
@@ -548,7 +561,12 @@ impl Codegen {
 
             Expr::KeyPressed(key) => {
                 let kr = self.alloc_reg();
-                self.quad(IrOp::KeyPressed, Some(&format!("V{:X}", kr)), None, Some(&dest_s));
+                self.quad(
+                    IrOp::KeyPressed,
+                    Some(&format!("V{:X}", kr)),
+                    None,
+                    Some(&dest_s),
+                );
                 self.emit_load_expr(kr, key);
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
                 self.emit(0xE09E | ((kr as u16) << 8));
@@ -571,8 +589,8 @@ impl Codegen {
         let lr = self.alloc_reg();
         let rr = self.alloc_reg();
         let dest_s = format!("V{:X}", dest);
-        let lr_s   = format!("V{:X}", lr);
-        let rr_s   = format!("V{:X}", rr);
+        let lr_s = format!("V{:X}", lr);
+        let rr_s = format!("V{:X}", rr);
         self.emit_load_expr(lr, left);
         self.emit_load_expr(rr, right);
 
