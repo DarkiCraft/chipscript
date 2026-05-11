@@ -2,10 +2,14 @@
 
 use crate::ast::*;
 use crate::error::*;
+use crate::ir::{IrOp, Quad};
 use std::collections::HashMap;
 
 pub struct Codegen {
     rom: Vec<u8>,
+    ir: Vec<Quad>,
+    ir_temp: u32, // counter for generating unique temp names
+    ir_label: u32, // counter for generating unique label names
     registers: HashMap<String, u8>,
     sprite_addrs: HashMap<String, u16>,
     sprite_heights: HashMap<String, u8>,
@@ -19,12 +23,36 @@ impl Codegen {
     pub fn new() -> Self {
         Codegen {
             rom: Vec::new(),
+            ir: Vec::new(),
+            ir_temp: 0,
+            ir_label: 0,
             registers: HashMap::new(),
             sprite_addrs: HashMap::new(),
             sprite_heights: HashMap::new(),
             fn_addrs: HashMap::new(),
             next_reg: 0,
         }
+    }
+
+    // -- IR HELPERS -----------------------------------------------
+    pub fn get_ir(&self) -> &[Quad] {
+        &self.ir
+    }
+
+    fn quad(&mut self, op: IrOp, arg1: Option<&str>, arg2: Option<&str>, result: Option<&str>) {
+        self.ir.push(Quad::new(op, arg1, arg2, result));
+    }
+
+    fn fresh_temp(&mut self) -> String {
+        let t = format!("t{}", self.ir_temp);
+        self.ir_temp += 1;
+        t
+    }
+
+    fn fresh_label(&mut self) -> String {
+        let l = format!("L{}", self.ir_label);
+        self.ir_label += 1;
+        l
     }
 
     fn current_addr(&self) -> u16 {
@@ -86,6 +114,8 @@ impl Codegen {
             self.sprite_heights
                 .insert(sprite.name.clone(), bytes.len() as u8);
             pos += bytes.len() as u16;
+            // IR: record where this sprite lives
+            self.quad(IrOp::SpriteData, Some(&sprite.name), Some(&addr.to_string()), None);
             for b in bytes {
                 self.rom.push(b);
             }
@@ -142,6 +172,9 @@ impl Codegen {
 
     // -- FUNCTION -------------------------------------------------
     fn emit_fn(&mut self, f: &FnDecl) {
+        // IR: function label
+        self.quad(IrOp::Label, Some(&f.name), None, None);
+
         // allocate temp registers for args and return value
         let mut temp_names: Vec<String> = Vec::new();
 
@@ -157,6 +190,8 @@ impl Codegen {
 
         self.emit_block(&f.body);
 
+        // IR: return
+        self.quad(IrOp::Return, None, None, None);
         // return
         self.emit(0x00EE);
 
@@ -178,6 +213,8 @@ impl Codegen {
     fn emit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Assign(name, expr) => {
+                let t = self.fresh_temp();
+                self.quad(IrOp::Copy, Some(&t.clone()), None, Some(name));
                 let r = self.reg(name);
                 self.emit_load_expr(r, expr);
             }
@@ -187,9 +224,12 @@ impl Codegen {
             }
 
             Stmt::Loop(body) => {
+                let lbl = self.fresh_label();
+                self.quad(IrOp::Label, Some(&lbl), None, None);
                 let loop_start = self.current_addr();
                 self.emit_block(body);
-                self.emit(0x1000 | loop_start); // JP loop_start forever
+                self.quad(IrOp::Jump, Some(&lbl), None, None);
+                self.emit(0x1000 | loop_start);
             }
 
             Stmt::While(cond, body) => {
@@ -197,14 +237,19 @@ impl Codegen {
             }
 
             Stmt::Call(name, args) => {
+                let argc = args.len().to_string();
+                self.quad(IrOp::Call, Some(name), Some(&argc), None);
                 self.emit_fn_call(name, args);
             }
 
             Stmt::Clear => {
+                self.quad(IrOp::Clear, None, None, None);
                 self.emit(0x00E0);
             }
 
             Stmt::Delay(e) => {
+                let t = self.fresh_temp();
+                self.quad(IrOp::SetDelay, Some(&t), None, None);
                 let r = self.alloc_reg();
                 self.emit_load_expr(r, e);
                 self.emit(0xF015 | ((r as u16) << 8));
@@ -212,6 +257,8 @@ impl Codegen {
             }
 
             Stmt::Beep(e) => {
+                let t = self.fresh_temp();
+                self.quad(IrOp::SetSound, Some(&t), None, None);
                 let r = self.alloc_reg();
                 self.emit_load_expr(r, e);
                 self.emit(0xF018 | ((r as u16) << 8));
@@ -228,23 +275,32 @@ impl Codegen {
         elseifs: &[ElseIf],
         else_body: Option<&[Stmt]>,
     ) {
+        let end_lbl = self.fresh_label();
         let mut end_jumps: Vec<usize> = Vec::new();
 
         // if branch
+        let skip_lbl = self.fresh_label();
+        self.quad(IrOp::JumpFalse, Some("cond"), Some(&skip_lbl), None);
         let skip_offset = self.emit_cond_jump(cond);
         self.emit_block(body);
+        self.quad(IrOp::Jump, Some(&end_lbl), None, None);
         end_jumps.push(self.rom.len());
-        self.emit(0x1000); // JP end placeholder
+        self.emit(0x1000);
         let after_body = self.current_addr();
+        self.quad(IrOp::Label, Some(&skip_lbl), None, None);
         self.patch_jump(skip_offset, after_body);
 
         // elif branches
         for elif in elseifs {
+            let elif_skip = self.fresh_label();
+            self.quad(IrOp::JumpFalse, Some("cond"), Some(&elif_skip), None);
             let skip = self.emit_cond_jump(&elif.condition);
             self.emit_block(&elif.body);
+            self.quad(IrOp::Jump, Some(&end_lbl), None, None);
             end_jumps.push(self.rom.len());
             self.emit(0x1000);
             let after = self.current_addr();
+            self.quad(IrOp::Label, Some(&elif_skip), None, None);
             self.patch_jump(skip, after);
         }
 
@@ -254,6 +310,7 @@ impl Codegen {
         }
 
         // patch all end jumps
+        self.quad(IrOp::Label, Some(&end_lbl), None, None);
         let end_addr = self.current_addr();
         for offset in end_jumps {
             self.patch(offset, 0x1000 | end_addr);
@@ -262,11 +319,17 @@ impl Codegen {
 
     // -- WHILE ----------------------------------------------------
     fn emit_while(&mut self, cond: &Expr, body: &[Stmt]) {
+        let loop_lbl = self.fresh_label();
+        let end_lbl  = self.fresh_label();
+        self.quad(IrOp::Label, Some(&loop_lbl), None, None);
         let loop_start = self.current_addr();
+        self.quad(IrOp::JumpFalse, Some("cond"), Some(&end_lbl), None);
         let skip_offset = self.emit_cond_jump(cond);
         self.emit_block(body);
+        self.quad(IrOp::Jump, Some(&loop_lbl), None, None);
         self.emit(0x1000 | loop_start);
         let loop_end = self.current_addr();
+        self.quad(IrOp::Label, Some(&end_lbl), None, None);
         self.patch_jump(skip_offset, loop_end);
     }
 
@@ -392,20 +455,24 @@ impl Codegen {
 
     // -- LOAD EXPR INTO REGISTER ----------------------------------
     fn emit_load_expr(&mut self, dest: u8, expr: &Expr) {
+        let dest_s = format!("V{:X}", dest);
         match expr {
             Expr::Int(n) => {
-                let byte = (*n as i8) as u8; // preserve two's complement
+                self.quad(IrOp::LoadImm, Some(&n.to_string()), None, Some(&dest_s));
+                let byte = (*n as i8) as u8;
                 self.emit(0x6000 | ((dest as u16) << 8) | (byte as u16));
             }
 
             Expr::Bool(b) => {
                 let n: u16 = if *b { 1 } else { 0 };
+                self.quad(IrOp::LoadImm, Some(&n.to_string()), None, Some(&dest_s));
                 self.emit(0x6000 | ((dest as u16) << 8) | n);
             }
 
             Expr::Var(name) => {
                 let src = self.reg(name);
                 if src != dest {
+                    self.quad(IrOp::Copy, Some(name), None, Some(&dest_s));
                     self.emit(0x8000 | ((dest as u16) << 8) | ((src as u16) << 4));
                 }
             }
@@ -415,23 +482,20 @@ impl Codegen {
             }
 
             Expr::Not(e) => {
+                self.quad(IrOp::Not, Some(&dest_s), None, Some(&dest_s));
                 self.emit_load_expr(dest, e);
-                // flip bool: XOR with 1
-                // need a temp reg holding 1
                 let tmp = self.alloc_reg();
-                self.emit(0x6000 | ((tmp as u16) << 8) | 0x01); // tmp = 1
-                self.emit(0x8000 | ((dest as u16) << 8) | ((tmp as u16) << 4) | 0x3); // VX = VX XOR tmp
+                self.emit(0x6000 | ((tmp as u16) << 8) | 0x01);
+                self.emit(0x8000 | ((dest as u16) << 8) | ((tmp as u16) << 4) | 0x3);
                 self.free_regs(1);
             }
 
             Expr::Call(name, args) => {
-                // args go into next_reg .. next_reg+n-1
-                // ret goes into next_reg+n  (emit_fn allocates it right after args)
+                let argc = args.len().to_string();
+                self.quad(IrOp::Call, Some(name), Some(&argc), Some(&dest_s));
                 let base = self.next_reg;
                 let ret_reg = base + args.len() as u8;
-                // emit the call (writes args into base..base+n-1)
                 self.emit_fn_call(name, args);
-                // copy return value (in ret_reg) to dest
                 if ret_reg != dest {
                     self.emit(0x8000 | ((dest as u16) << 8) | ((ret_reg as u16) << 4));
                 }
@@ -440,6 +504,7 @@ impl Codegen {
             Expr::Draw(x, y, sprite_name) => {
                 let xr = self.alloc_reg();
                 let yr = self.alloc_reg();
+                self.quad(IrOp::Draw, Some(&format!("V{:X}", xr)), Some(&format!("V{:X}", yr)), Some(sprite_name));
                 self.emit_load_expr(xr, x);
                 self.emit_load_expr(yr, y);
                 let addr = *self
@@ -453,7 +518,6 @@ impl Codegen {
                     as u16;
                 self.emit(0xA000 | addr);
                 self.emit(0xD000 | ((xr as u16) << 8) | ((yr as u16) << 4) | height);
-                // VF = collision, copy to dest
                 self.emit(0x8000 | ((dest as u16) << 8) | (0xF << 4));
                 self.free_regs(2);
             }
@@ -462,37 +526,39 @@ impl Codegen {
                 let xr = self.alloc_reg();
                 let yr = self.alloc_reg();
                 let nr = self.alloc_reg();
+                self.quad(IrOp::DrawDigit, Some(&format!("V{:X}", xr)), Some(&format!("V{:X}", yr)), Some(&format!("V{:X}", nr)));
                 self.emit_load_expr(xr, x);
                 self.emit_load_expr(yr, y);
                 self.emit_load_expr(nr, n);
-                // FX29: set I to digit sprite for VX
                 self.emit(0xF029 | ((nr as u16) << 8));
-                // draw 5 rows tall (all digit sprites are 5 bytes)
                 self.emit(0xD000 | ((xr as u16) << 8) | ((yr as u16) << 4) | 0x5);
-                // VF = collision
                 self.emit(0x8000 | ((dest as u16) << 8) | (0xF << 4));
                 self.free_regs(3);
             }
 
             Expr::GetKey => {
+                self.quad(IrOp::GetKey, None, None, Some(&dest_s));
                 self.emit(0xF00A | ((dest as u16) << 8));
             }
 
             Expr::GetDelay => {
+                self.quad(IrOp::GetDelay, None, None, Some(&dest_s));
                 self.emit(0xF007 | ((dest as u16) << 8));
             }
 
             Expr::KeyPressed(key) => {
                 let kr = self.alloc_reg();
+                self.quad(IrOp::KeyPressed, Some(&format!("V{:X}", kr)), None, Some(&dest_s));
                 self.emit_load_expr(kr, key);
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1
-                self.emit(0xE09E | ((kr as u16) << 8)); // skip if key pressed
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
+                self.emit(0xE09E | ((kr as u16) << 8));
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.free_regs(1);
             }
 
             Expr::Rand(mask) => {
                 if let Expr::Int(n) = mask.as_ref() {
+                    self.quad(IrOp::Rand, Some(&n.to_string()), None, Some(&dest_s));
                     self.emit(0xC000 | ((dest as u16) << 8) | (*n as u16));
                 } else {
                     fail(format!("rand() mask must be an integer literal"));
@@ -501,69 +567,76 @@ impl Codegen {
         }
     }
 
-    // -- BINOP ----------------------------------------------------
     fn emit_binop(&mut self, dest: u8, left: &Expr, op: &Op, right: &Expr) {
         let lr = self.alloc_reg();
         let rr = self.alloc_reg();
+        let dest_s = format!("V{:X}", dest);
+        let lr_s   = format!("V{:X}", lr);
+        let rr_s   = format!("V{:X}", rr);
         self.emit_load_expr(lr, left);
         self.emit_load_expr(rr, right);
 
         match op {
             Op::Add => {
+                self.quad(IrOp::Add, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x4);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((lr as u16) << 4));
             }
             Op::Sub => {
+                self.quad(IrOp::Sub, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((lr as u16) << 4));
             }
             Op::Mul => {
+                self.quad(IrOp::Mul, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 let counter = self.alloc_reg();
                 self.emit(0x6000 | ((dest as u16) << 8));
                 self.emit(0x8000 | ((counter as u16) << 8) | ((rr as u16) << 4));
                 let loop_start = self.current_addr();
-                self.emit(0x3000 | ((counter as u16) << 8) | 0x00); // SE counter, 0
+                self.emit(0x3000 | ((counter as u16) << 8) | 0x00);
                 let skip = self.rom.len();
                 self.emit(0x1000);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((lr as u16) << 4) | 0x4);
                 let one = self.alloc_reg();
                 self.emit(0x6000 | ((one as u16) << 8) | 0x01);
                 self.emit(0x8000 | ((counter as u16) << 8) | ((one as u16) << 4) | 0x5);
-                self.free_regs(1); // free one
+                self.free_regs(1);
                 self.emit(0x1000 | loop_start);
                 let end = self.current_addr();
                 self.patch(skip, 0x1000 | end);
-                self.free_regs(1); // free counter
+                self.free_regs(1);
             }
             Op::Div => {
+                self.quad(IrOp::Div, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 let counter = self.alloc_reg();
                 self.emit(0x6000 | ((counter as u16) << 8));
                 let loop_start = self.current_addr();
                 let tmp = self.alloc_reg();
                 self.emit(0x8000 | ((tmp as u16) << 8) | ((lr as u16) << 4));
                 self.emit(0x8000 | ((tmp as u16) << 8) | ((rr as u16) << 4) | 0x5);
-                self.free_regs(1); // free tmp
-                self.emit(0x3F00); // SE VF, 0 (borrow = lr < rr, done)
+                self.free_regs(1);
+                self.emit(0x3F00);
                 let skip = self.rom.len();
                 self.emit(0x1000);
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
                 let one = self.alloc_reg();
                 self.emit(0x6000 | ((one as u16) << 8) | 0x01);
                 self.emit(0x8000 | ((counter as u16) << 8) | ((one as u16) << 4) | 0x4);
-                self.free_regs(1); // free one
+                self.free_regs(1);
                 self.emit(0x1000 | loop_start);
                 let end = self.current_addr();
                 self.patch(skip, 0x1000 | end);
                 self.emit(0x8000 | ((dest as u16) << 8) | ((counter as u16) << 4));
-                self.free_regs(1); // free counter
+                self.free_regs(1);
             }
             Op::Mod => {
+                self.quad(IrOp::Mod, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 let loop_start = self.current_addr();
                 let tmp = self.alloc_reg();
                 self.emit(0x8000 | ((tmp as u16) << 8) | ((lr as u16) << 4));
                 self.emit(0x8000 | ((tmp as u16) << 8) | ((rr as u16) << 4) | 0x5);
-                self.free_regs(1); // free tmp
-                self.emit(0x3F00); // SE VF, 0 (done)
+                self.free_regs(1);
+                self.emit(0x3F00);
                 let skip = self.rom.len();
                 self.emit(0x1000);
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
@@ -573,76 +646,59 @@ impl Codegen {
                 self.emit(0x8000 | ((dest as u16) << 8) | ((lr as u16) << 4));
             }
             Op::EqEq => {
-                // dest = 0; skip to dest=1 if VX == VY (5XY0 skips if equal)
+                self.quad(IrOp::CmpEq, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x5000 | ((lr as u16) << 8) | ((rr as u16) << 4));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             }
             Op::NotEq => {
-                // dest = 0; skip to dest=1 if VX != VY (9XY0 skips if not equal)
+                self.quad(IrOp::CmpNeq, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x9000 | ((lr as u16) << 8) | ((rr as u16) << 4));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             }
             Op::Lt => {
-                // VX - VY: VF=0 means borrow (VX < VY), VF=1 means no borrow
-                // dest=0; SE VF,0 skips to dest=1 when borrow occurred (true)
+                self.quad(IrOp::CmpLt, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
-                self.emit(0x3F00); // SE VF, 0 — skip if borrow (lt is true)
+                self.emit(0x3F00);
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             }
             Op::Gt => {
-                // VY - VX: VF=0 means borrow (VY < VX i.e. VX > VY)
+                self.quad(IrOp::CmpGt, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x8000 | ((rr as u16) << 8) | ((lr as u16) << 4) | 0x5);
-                self.emit(0x3F00); // SE VF, 0
+                self.emit(0x3F00);
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             }
             Op::LtEq => {
-                // VY - VX: VF=1 means no borrow (VY >= VX i.e. VX <= VY)
+                self.quad(IrOp::CmpLtEq, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x8000 | ((rr as u16) << 8) | ((lr as u16) << 4) | 0x5);
-                self.emit(0x3F00 | 0x01); // SE VF, 1 — skip if no borrow (le is true)
+                self.emit(0x3F00 | 0x01);
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             }
             Op::GtEq => {
-                // VX - VY: VF=1 means no borrow (VX >= VY)
+                self.quad(IrOp::CmpGtEq, Some(&lr_s), Some(&rr_s), Some(&dest_s));
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
                 self.emit(0x8000 | ((lr as u16) << 8) | ((rr as u16) << 4) | 0x5);
-                self.emit(0x3F00 | 0x01); // SE VF, 1
+                self.emit(0x3F00 | 0x01);
                 self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             }
-
-            // FIX 2: Op::And was logically NAND (SNE on left inverted the result for VL=false).
-            // New approach: assume true, then clear to false if either operand is false.
-            //   dest = 1
-            //   SE VL, 1  — if VL is true, skip the "dest=0" below it and go check VR
-            //   dest = 0  — VL was false, short-circuit: done
-            //   SE VR, 1  — if VR is true, skip the "dest=0" below it: both true, keep 1
-            //   dest = 0  — VR was false: done
             Op::And => {
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1 (assume true)
-                self.emit(0x3000 | ((lr as u16) << 8) | 0x01); // SE VL, 1 — skip if VL true
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (VL false)
-                self.emit(0x3000 | ((rr as u16) << 8) | 0x01); // SE VR, 1 — skip if VR true
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (VR false)
+                self.quad(IrOp::And, Some(&lr_s), Some(&rr_s), Some(&dest_s));
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
+                self.emit(0x3000 | ((lr as u16) << 8) | 0x01);
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
+                self.emit(0x3000 | ((rr as u16) << 8) | 0x01);
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
             }
-
-            // FIX 3: Op::Or was broken — two chained SE instructions can't correctly implement OR.
-            // When VL=false and VR=true, the first SE fell through to the second SE which then
-            // *skipped* dest=1, leaving 0. When VL=false and VR=false, both SE fell through
-            // and dest=1 was set incorrectly.
-            // New approach: assume false, set true if either operand is true.
-            //   dest = 0
-            //   SE VL, 1  — if VL true, skip the SNE below and execute dest=1
-            //   SNE VR, 1 — if VR false (!=1), skip dest=1; if VR true, fall through to dest=1
-            //   dest = 1
             Op::Or => {
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x00); // dest = 0 (assume false)
-                self.emit(0x3000 | ((lr as u16) << 8) | 0x01); // SE VL, 1 — skip SNE if VL true
-                self.emit(0x4000 | ((rr as u16) << 8) | 0x01); // SNE VR, 1 — skip dest=1 if VR false
-                self.emit(0x6000 | ((dest as u16) << 8) | 0x01); // dest = 1
+                self.quad(IrOp::Or, Some(&lr_s), Some(&rr_s), Some(&dest_s));
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x00);
+                self.emit(0x3000 | ((lr as u16) << 8) | 0x01);
+                self.emit(0x4000 | ((rr as u16) << 8) | 0x01);
+                self.emit(0x6000 | ((dest as u16) << 8) | 0x01);
             }
         }
 

@@ -32,6 +32,16 @@ pub fn compile_no_opt(src: &str) -> Vec<u8> {
     Codegen::new().generate(&program)
 }
 
+// Helper: compile to ir without emiting bytecode
+pub fn compile_ir(src: &str) -> Vec<chipscript::ir::Quad> {
+    let tokens = chipscript::lexer::lex(src.to_string());
+    let mut parser = chipscript::parser::Parser::new(tokens);
+    let program = parser.parse();
+    let mut cg = chipscript::codegen::Codegen::new();
+    cg.generate(&program);
+    cg.get_ir().to_vec()
+}
+
 // Helper: run a closure and assert it panics (catches process::exit too)
 pub fn assert_panics<F: FnOnce() + std::panic::UnwindSafe>(f: F) {
     assert!(
