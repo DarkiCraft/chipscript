@@ -3,16 +3,18 @@
 A compiled, statically-typed language that targets the [CHIP-8](https://en.wikipedia.org/wiki/CHIP-8) fantasy console. Write programs in clean high-level syntax and compile them down to `.ch8` ROM files ready to run in any CHIP-8 emulator.
 
 ```
-chipscript game.cs → game.ch8
+chipscript game.cs → out.ch8
 ```
 
 ## Features
 
-- **Full compilation pipeline** — lexing, parsing, semantic analysis, and code generation
+- **Full 6-phase compilation pipeline** — lexing, parsing, semantic analysis, AST optimization, IR generation, and target code generation
 - **Two types, zero surprises** — `int` (8-bit signed) and `bool`; no implicit conversions
 - **Built-in hardware abstractions** — draw sprites, poll the keypad, use timers and sound with simple function calls
+- **Multi-pass AST optimizer** — constant folding, dead code elimination, and strength reduction via fixed-point iteration
+- **Quadruple-based IR** — structured intermediate representation exposed via `--emit-ir`
+- **Pipeline inspection** — dump the output of any compilation phase with `--emit-*` flags
 - **Meaningful errors** — clear messages at each stage of compilation
-- **Verbose mode** — inspect each compilation stage and final ROM size
 
 ## Installation
 
@@ -40,22 +42,93 @@ cargo install --path .
 Usage: chipscript [OPTIONS] <file.cs>
 
 Options:
-  -o <file>        Write output ROM to <file> instead of <input>.ch8
-  -v, --verbose    Print compilation stages and ROM size info
-      --no-analyze   Skip semantic analysis (for debugging the parser)
-  -V, --version    Print version and exit
-  -h, --help       Print this help and exit
+  -o <file>           Write output ROM to <file>  [default: out.ch8]
+  -v, --verbose       Print compilation stages and ROM size info
+      --no-analyze    Skip semantic analysis
+      --no-opt        Skip optimization pass
+      --emit-tokens   Lex only       — print tokens and stop
+      --emit-ast      Lex + parse    — print AST before optimization and stop
+      --emit-ast-opt  Lex + parse + optimize — print optimized AST and stop
+      --emit-ir       Full pipeline  — print IR quads and stop
+      --emit-rom-hex  Full pipeline  — print ROM as hex dump instead of writing file
+  -V, --version       Print version and exit
+  -h, --help          Print this help and exit
 ```
 
 ```bash
-# Compile a source file (outputs game.ch8)
+# Compile a source file (outputs out.ch8)
 chipscript game.cs
 
 # Compile with a custom output path
-chipscript game.cs -o roms/out.ch8
+chipscript game.cs -o roms/game.ch8
 
 # Verbose output — shows each stage and final ROM size
 chipscript game.cs -v
+
+# Inspect each phase
+chipscript game.cs --emit-tokens     # token stream
+chipscript game.cs --emit-ast        # raw AST
+chipscript game.cs --emit-ast-opt    # AST after optimization (compare with --emit-ast)
+chipscript game.cs --emit-ir         # IR quadruples
+chipscript game.cs --emit-rom-hex    # final ROM as hex dump
+```
+
+## Compilation Pipeline
+
+ChipScript compiles in 6 sequential phases:
+
+```
+Source (.cs)
+    │
+    ▼
+[1] Lexer        — source text → token stream
+    │
+    ▼
+[2] Parser       — token stream → Abstract Syntax Tree (AST)
+    │
+    ▼
+[3] Analyzer     — semantic checks (undefined variables, type misuse, register limits)
+    │
+    ▼
+[4] Optimizer    — multi-pass AST optimization (constant folding, DCE, strength reduction)
+    │
+    ▼
+[5] IR Generator — AST → quadruple-based Intermediate Representation
+    │
+    ▼
+[6] Code Generator — IR → CHIP-8 bytecode (.ch8 ROM)
+```
+
+Use `--emit-*` flags to stop the pipeline at any phase and inspect its output.
+
+### Optimizer
+
+The optimizer runs three passes to a fixed point (until no more changes occur):
+
+- **Constant Folding** — evaluates compile-time expressions (`3 + 4 → 7`, `true and false → false`)
+- **Dead Code Elimination** — removes unreachable branches (`if (false) { ... }` → nothing)
+- **Strength Reduction** — replaces expensive ops with cheaper equivalents (`x * 2 → x + x`, `x * 1 → x`, `x / 1 → x`)
+
+On CHIP-8, multiply and divide are software loops, so strength reduction has real impact on ROM size and speed.
+
+### Intermediate Representation
+
+The IR uses a **quadruple** format — each instruction has four fields:
+
+```
+(op, arg1, arg2, result)
+```
+
+Example output of `chipscript game.cs --emit-ir`:
+
+```
+(LoadImm, 32, _, V0)
+(LoadImm, 16, _, V1)
+(Label, main_loop, _, _)
+(Draw, V0, V1, ball)
+(Add, V0, V2, V0)
+(JumpFalse, cond, L1, _)
+...
 ```
 
 ## The Language
@@ -63,10 +136,10 @@ chipscript game.cs -v
 A ChipScript program is made up of four top-level sections:
 
 ```
-sprites { ... }             // sprite pixel data
-vars    { ... }             // global variable declarations
+sprites { ... }              // sprite pixel data
+vars    { ... }              // global variable declarations
 fn name(args) -> ret { ... } // function definitions
-main    { ... }             // entry point
+main    { ... }              // entry point
 ```
 
 Only `main` is required. Sections can appear in any order.
@@ -104,6 +177,23 @@ while (condition) { ... }
 loop { ... }   // infinite loop — the standard game loop shell
 ```
 
+### Functions
+
+```cs
+fn add(a, b) -> result {
+    result = a + b;
+}
+```
+
+Functions are declared with `fn`, take named arguments, and return via a named return variable. Called as expressions or statements:
+
+```cs
+vars { total = 0; }
+main {
+    total = add(3, 4);
+}
+```
+
 ### Built-in functions
 
 | Function | Returns | Description |
@@ -118,104 +208,13 @@ loop { ... }   // infinite loop — the standard game loop shell
 | `beep(n)` | — | Set sound timer (beeps while nonzero) |
 | `rand(mask)` | `int` | Random byte ANDed with a literal mask |
 
-## Examples
+### Operators
 
-### Bouncing ball
-
-A sprite that bounces around the screen, reversing direction on collision.
-
-```cs
-sprites {
-    ball = [0x3C, 0x7E, 0x7E, 0x3C];  // 4-row circle
-}
-
-vars {
-    bx  = 32;
-    by  = 16;
-    dx  = 1;
-    dy  = 1;
-    hit = false;
-}
-
-main {
-    loop {
-        // erase at current position (XOR draw)
-        hit = draw(bx, by, ball);
-
-        // move
-        bx = bx + dx;
-        by = by + dy;
-
-        // bounce off edges
-        if ((bx <= 0) or (bx >= 60)) { dx = dx * -1; }
-        if ((by <= 0) or (by >= 28)) { dy = dy * -1; }
-
-        // redraw
-        hit = draw(bx, by, ball);
-
-        // pace the loop to ~60 fps
-        delay(1);
-        hit = false;
-        while (not hit) { hit = (getdelay() == 0); }
-    }
-}
-```
-
-### Keyboard counter
-
-Press any key to increment a digit displayed in the centre of the screen.
-
-```cs
-vars {
-    count = 0;
-    k     = 0;
-}
-
-main {
-    clear();
-    loop {
-        // display current count as a hex digit
-        k = drawdigit(28, 12, count);
-
-        // wait for a keypress, then erase and increment
-        k = getkey();
-        k = drawdigit(28, 12, count);
-        count = count + 1;
-
-        // wrap at 16
-        if (count == 16) { count = 0; }
-    }
-}
-```
-
-### Dice roller
-
-Press any key to roll a die and show the result. Beeps on a six.
-
-```cs
-vars {
-    roll = 0;
-    k    = 0;
-}
-
-fn roll_die(seed) -> result {
-    result = rand(0x07);              // 0–7
-    if (result > 5) { result = rand(0x05); }  // re-roll if out of range
-    result = result + 1;              // shift to 1–6
-}
-
-main {
-    clear();
-    loop {
-        k    = getkey();              // wait for any key
-        roll = roll_die(k);
-        clear();
-        k = drawdigit(28, 12, roll);
-
-        if (roll == 6) { beep(20); } // beep on a six
-    }
-}
-```
+| Category | Operators |
+|---|---|
+| Arithmetic | `+` `-` `*` `/` `%` |
+| Comparison | `==` `!=` `<` `>` `<=` `>=` |
+| Logic | `and` `or` `not` |
 
 ## Running ROMs
 
@@ -250,12 +249,32 @@ Load your compiled `.ch8` file in any CHIP-8 emulator:
 ```
 src/
 ├── main.rs       # CLI entry point and compilation driver
-├── error.rs      # Error types and reporting
-├── lexer.rs      # Tokenizer
+├── error.rs      # Error reporting
+├── lexer.rs      # Tokenizer (source → token stream)
 ├── ast.rs        # AST node definitions
 ├── parser.rs     # Parser (tokens → AST)
 ├── analyzer.rs   # Semantic analyzer
-└── codegen.rs    # CHIP-8 bytecode generator
+├── optimizer.rs  # Multi-pass AST optimizer
+├── ir.rs         # IR quadruple definitions
+├── codegen.rs    # CHIP-8 bytecode generator (AST → IR → ROM)
+└── bin/
+    ├── lexer.rs      # Phase 1 standalone binary
+    ├── parser.rs     # Phase 2 standalone binary
+    ├── analyzer.rs   # Phase 3 standalone binary
+    ├── ir.rs         # Phase 4 standalone binary
+    ├── optimizer.rs  # Phase 5 standalone binary
+    └── codegen.rs    # Phase 6 standalone binary
+```
+
+Each phase can also be run as a standalone executable after `cargo build`:
+
+```bash
+./target/debug/lexer    game.cs   # token stream
+./target/debug/parser   game.cs   # AST
+./target/debug/analyzer game.cs   # semantic check
+./target/debug/ir       game.cs   # IR quads
+./target/debug/optimizer game.cs  # optimized AST
+./target/debug/codegen  game.cs   # compile to out.ch8
 ```
 
 ## License

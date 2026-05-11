@@ -15,34 +15,40 @@ const HELP: &str = "\
 Usage: chipscript [OPTIONS] <file.cs>
 
 Options:
-  -o <file>          Write output ROM to <file>  [default: out.ch8]
-  -v, --verbose      Print compilation stages and ROM size info
-      --no-analyze   Skip semantic analysis
-      --no-opt       Skip optimization pass
-      --emit-tokens  Lex only — print tokens and stop
-      --emit-ast     Lex + parse — print AST and stop
-      --emit-ir      Lex + parse + codegen — print IR quads and stop
-  -V, --version      Print version and exit
-  -h, --help         Print this help and exit
+  -o <file>           Write output ROM to <file>  [default: out.ch8]
+  -v, --verbose       Print compilation stages and ROM size info
+      --no-analyze    Skip semantic analysis
+      --no-opt        Skip optimization pass
+      --emit-tokens   Lex only       — print tokens and stop
+      --emit-ast      Lex + parse    — print AST before optimization and stop
+      --emit-ast-opt  Lex + parse + optimize — print optimized AST and stop
+      --emit-ir       Full pipeline  — print IR quads and stop
+      --emit-rom-hex  Full pipeline  — print ROM as hex dump instead of writing file
+  -V, --version       Print version and exit
+  -h, --help          Print this help and exit
 
 Examples:
-  chipscript game.cs                    # outputs out.ch8
+  chipscript game.cs                    # compile to out.ch8
   chipscript game.cs -o roms/out.ch8   # custom output path
   chipscript game.cs -v                # verbose stage-by-stage output
-  chipscript game.cs --emit-tokens     # inspect tokens
-  chipscript game.cs --emit-ast        # inspect AST
+  chipscript game.cs --emit-tokens     # inspect lexer output
+  chipscript game.cs --emit-ast        # inspect raw AST
+  chipscript game.cs --emit-ast-opt    # inspect optimized AST
   chipscript game.cs --emit-ir         # inspect IR quads
+  chipscript game.cs --emit-rom-hex    # inspect generated ROM bytes
 ";
 
 struct Opts {
-    input: String,
-    output: Option<String>,
-    verbose: bool,
-    no_analyze: bool,
-    no_opt: bool,
-    emit_tokens: bool,
-    emit_ast: bool,
-    emit_ir: bool,
+    input:        String,
+    output:       Option<String>,
+    verbose:      bool,
+    no_analyze:   bool,
+    no_opt:       bool,
+    emit_tokens:  bool,
+    emit_ast:     bool,
+    emit_ast_opt: bool,
+    emit_ir:      bool,
+    emit_rom_hex: bool,
 }
 
 fn parse_args() -> Opts {
@@ -53,14 +59,16 @@ fn parse_args() -> Opts {
         process::exit(1);
     }
 
-    let mut input = None;
-    let mut output = None;
-    let mut verbose = false;
-    let mut no_analyze = false;
-    let mut no_opt = false;
-    let mut emit_tokens = false;
-    let mut emit_ast = false;
-    let mut emit_ir = false;
+    let mut input        = None;
+    let mut output       = None;
+    let mut verbose      = false;
+    let mut no_analyze   = false;
+    let mut no_opt       = false;
+    let mut emit_tokens  = false;
+    let mut emit_ast     = false;
+    let mut emit_ast_opt = false;
+    let mut emit_ir      = false;
+    let mut emit_rom_hex = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -73,12 +81,14 @@ fn parse_args() -> Opts {
                 println!("chipscript {}", VERSION);
                 process::exit(0);
             }
-            "-v" | "--verbose" => verbose = true,
-            "--no-analyze"    => no_analyze = true,
-            "--no-opt"        => no_opt = true,
-            "--emit-tokens"   => emit_tokens = true,
-            "--emit-ast"      => emit_ast = true,
-            "--emit-ir"       => emit_ir = true,
+            "-v" | "--verbose"  => verbose      = true,
+            "--no-analyze"      => no_analyze   = true,
+            "--no-opt"          => no_opt        = true,
+            "--emit-tokens"     => emit_tokens  = true,
+            "--emit-ast"        => emit_ast      = true,
+            "--emit-ast-opt"    => emit_ast_opt  = true,
+            "--emit-ir"         => emit_ir       = true,
+            "--emit-rom-hex"    => emit_rom_hex  = true,
             "-o" => {
                 i += 1;
                 if i >= args.len() {
@@ -115,23 +125,22 @@ fn parse_args() -> Opts {
         }
     };
 
-    Opts { input, output, verbose, no_analyze, no_opt, emit_tokens, emit_ast, emit_ir }
+    Opts { input, output, verbose, no_analyze, no_opt,
+           emit_tokens, emit_ast, emit_ast_opt, emit_ir, emit_rom_hex }
 }
 
 fn main() {
     let opts = parse_args();
 
-    // -- default output path: out.ch8 (like gcc's a.out) ----------
     let out_path = opts.output.unwrap_or_else(|| "out.ch8".to_string());
 
-    // -- read source ----------------------------------------------
+    // -- [1] lex --------------------------------------------------
+    if opts.verbose { eprintln!("[1/5] lexing '{}'", opts.input); }
+
     let source = std::fs::read_to_string(&opts.input).unwrap_or_else(|e| {
         eprintln!("error: could not read '{}': {}", opts.input, e);
         process::exit(1);
     });
-
-    // -- [1] lex --------------------------------------------------
-    if opts.verbose { eprintln!("[1/5] lexing '{}'", opts.input); }
 
     let tokens = lexer::lex(source);
 
@@ -139,10 +148,11 @@ fn main() {
         for tok in &tokens {
             println!("{:?}", tok);
         }
+        eprintln!("--- {} token(s)", tokens.len());
         return;
     }
 
-    if opts.verbose { eprintln!("      {} tokens", tokens.len()); }
+    if opts.verbose { eprintln!("      {} token(s)", tokens.len()); }
 
     // -- [2] parse ------------------------------------------------
     if opts.verbose { eprintln!("[2/5] parsing"); }
@@ -156,10 +166,8 @@ fn main() {
     }
 
     if opts.verbose {
-        eprintln!(
-            "      {} sprite(s), {} var(s), {} function(s)",
-            program.sprites.len(), program.vars.len(), program.functions.len()
-        );
+        eprintln!("      {} sprite(s), {} var(s), {} function(s)",
+            program.sprites.len(), program.vars.len(), program.functions.len());
     }
 
     // -- [3] analyze ----------------------------------------------
@@ -169,6 +177,7 @@ fn main() {
         if opts.verbose { eprintln!("[3/5] analyzing"); }
         let mut analyzer = analyzer::Analyzer::new();
         analyzer.analyze(&program);
+        if opts.verbose { eprintln!("      ok"); }
     }
 
     // -- [4] optimize ---------------------------------------------
@@ -179,11 +188,14 @@ fn main() {
         let mut opt = optimizer::Optimizer::new();
         opt.optimize(&mut program);
         if opts.verbose {
-            eprintln!(
-                "      {} constant fold(s), {} dead branch(es) eliminated, {} strength reduction(s)",
-                opt.folds, opt.dce, opt.reductions
-            );
+            eprintln!("      {} constant fold(s), {} dead branch(es) eliminated, {} strength reduction(s)",
+                opt.folds, opt.dce, opt.reductions);
         }
+    }
+
+    if opts.emit_ast_opt {
+        println!("{:#?}", program);
+        return;
     }
 
     // -- [5] codegen + IR -----------------------------------------
@@ -196,6 +208,20 @@ fn main() {
         for quad in cg.get_ir() {
             println!("{}", quad);
         }
+        eprintln!("--- {} quad(s)", cg.get_ir().len());
+        return;
+    }
+
+    if opts.emit_rom_hex {
+        for (i, byte) in rom.iter().enumerate() {
+            if i % 16 == 0 {
+                if i > 0 { println!(); }
+                print!("{:04X}:  ", 0x200 + i);
+            }
+            print!("{:02X} ", byte);
+        }
+        println!();
+        eprintln!("--- {} byte(s)", rom.len());
         return;
     }
 
