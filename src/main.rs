@@ -15,18 +15,23 @@ const HELP: &str = "\
 Usage: chipscript [OPTIONS] <file.cs>
 
 Options:
-  -o <file>        Write output ROM to <file> instead of <input>.ch8
-  -v, --verbose    Print compilation stages and ROM size info
-      --no-analyze   Skip semantic analysis (for debugging the parser)
+  -o <file>          Write output ROM to <file>  [default: out.ch8]
+  -v, --verbose      Print compilation stages and ROM size info
+      --no-analyze   Skip semantic analysis
       --no-opt       Skip optimization pass
-  -V, --version    Print version and exit
-  -h, --help       Print this help and exit
+      --emit-tokens  Lex only — print tokens and stop
+      --emit-ast     Lex + parse — print AST and stop
+      --emit-ir      Lex + parse + codegen — print IR quads and stop
+  -V, --version      Print version and exit
+  -h, --help         Print this help and exit
 
 Examples:
-  chipscript game.cs                    # outputs game.ch8
-  chipscript game.cs -o roms/out.ch8    # custom output path
-  chipscript game.cs -v                 # verbose stage-by-stage output
-  chipscript game.cs --no-opt           # skip optimizer (for debugging)
+  chipscript game.cs                    # outputs out.ch8
+  chipscript game.cs -o roms/out.ch8   # custom output path
+  chipscript game.cs -v                # verbose stage-by-stage output
+  chipscript game.cs --emit-tokens     # inspect tokens
+  chipscript game.cs --emit-ast        # inspect AST
+  chipscript game.cs --emit-ir         # inspect IR quads
 ";
 
 struct Opts {
@@ -35,6 +40,9 @@ struct Opts {
     verbose: bool,
     no_analyze: bool,
     no_opt: bool,
+    emit_tokens: bool,
+    emit_ast: bool,
+    emit_ir: bool,
 }
 
 fn parse_args() -> Opts {
@@ -50,6 +58,9 @@ fn parse_args() -> Opts {
     let mut verbose = false;
     let mut no_analyze = false;
     let mut no_opt = false;
+    let mut emit_tokens = false;
+    let mut emit_ast = false;
+    let mut emit_ir = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -62,15 +73,12 @@ fn parse_args() -> Opts {
                 println!("chipscript {}", VERSION);
                 process::exit(0);
             }
-            "-v" | "--verbose" => {
-                verbose = true;
-            }
-            "--no-analyze" => {
-                no_analyze = true;
-            }
-            "--no-opt" => {
-                no_opt = true;
-            }
+            "-v" | "--verbose" => verbose = true,
+            "--no-analyze"    => no_analyze = true,
+            "--no-opt"        => no_opt = true,
+            "--emit-tokens"   => emit_tokens = true,
+            "--emit-ast"      => emit_ast = true,
+            "--emit-ir"       => emit_ir = true,
             "-o" => {
                 i += 1;
                 if i >= args.len() {
@@ -107,26 +115,14 @@ fn parse_args() -> Opts {
         }
     };
 
-    Opts {
-        input,
-        output,
-        verbose,
-        no_analyze,
-        no_opt,
-    }
+    Opts { input, output, verbose, no_analyze, no_opt, emit_tokens, emit_ast, emit_ir }
 }
 
 fn main() {
     let opts = parse_args();
 
-    // -- resolve output path --------------------------------------
-    let out_path = opts.output.unwrap_or_else(|| {
-        if opts.input.ends_with(".cs") {
-            opts.input.replace(".cs", ".ch8")
-        } else {
-            format!("{}.ch8", opts.input)
-        }
-    });
+    // -- default output path: out.ch8 (like gcc's a.out) ----------
+    let out_path = opts.output.unwrap_or_else(|| "out.ch8".to_string());
 
     // -- read source ----------------------------------------------
     let source = std::fs::read_to_string(&opts.input).unwrap_or_else(|e| {
@@ -134,51 +130,52 @@ fn main() {
         process::exit(1);
     });
 
-    if opts.verbose {
-        eprintln!("[1/5] lexing '{}'", opts.input);
-    }
+    // -- [1] lex --------------------------------------------------
+    if opts.verbose { eprintln!("[1/5] lexing '{}'", opts.input); }
 
-    // -- lex ------------------------------------------------------
     let tokens = lexer::lex(source);
 
-    if opts.verbose {
-        eprintln!("      {} tokens", tokens.len());
-        eprintln!("[2/5] parsing");
+    if opts.emit_tokens {
+        for tok in &tokens {
+            println!("{:?}", tok);
+        }
+        return;
     }
 
-    // -- parse ----------------------------------------------------
+    if opts.verbose { eprintln!("      {} tokens", tokens.len()); }
+
+    // -- [2] parse ------------------------------------------------
+    if opts.verbose { eprintln!("[2/5] parsing"); }
+
     let mut parser = parser::Parser::new(tokens);
     let mut program = parser.parse();
+
+    if opts.emit_ast {
+        println!("{:#?}", program);
+        return;
+    }
 
     if opts.verbose {
         eprintln!(
             "      {} sprite(s), {} var(s), {} function(s)",
-            program.sprites.len(),
-            program.vars.len(),
-            program.functions.len()
+            program.sprites.len(), program.vars.len(), program.functions.len()
         );
-        if opts.no_analyze {
-            eprintln!("[3/5] analysis skipped (--no-analyze)");
-        } else {
-            eprintln!("[3/5] analyzing");
-        }
     }
 
-    // -- analyze --------------------------------------------------
-    if !opts.no_analyze {
+    // -- [3] analyze ----------------------------------------------
+    if opts.no_analyze {
+        if opts.verbose { eprintln!("[3/5] analysis skipped (--no-analyze)"); }
+    } else {
+        if opts.verbose { eprintln!("[3/5] analyzing"); }
         let mut analyzer = analyzer::Analyzer::new();
         analyzer.analyze(&program);
     }
 
-    // -- optimize -------------------------------------------------
+    // -- [4] optimize ---------------------------------------------
     if opts.no_opt {
-        if opts.verbose {
-            eprintln!("[4/5] optimization skipped (--no-opt)");
-        }
+        if opts.verbose { eprintln!("[4/5] optimization skipped (--no-opt)"); }
     } else {
-        if opts.verbose {
-            eprintln!("[4/5] optimizing");
-        }
+        if opts.verbose { eprintln!("[4/5] optimizing"); }
         let mut opt = optimizer::Optimizer::new();
         opt.optimize(&mut program);
         if opts.verbose {
@@ -189,23 +186,24 @@ fn main() {
         }
     }
 
-    if opts.verbose {
-        eprintln!("[5/5] generating ROM");
+    // -- [5] codegen + IR -----------------------------------------
+    if opts.verbose { eprintln!("[5/5] generating ROM"); }
+
+    let mut cg = codegen::Codegen::new();
+    let rom = cg.generate(&program);
+
+    if opts.emit_ir {
+        for quad in cg.get_ir() {
+            println!("{}", quad);
+        }
+        return;
     }
 
-    // -- codegen --------------------------------------------------
-    let mut codegen = codegen::Codegen::new();
-    let rom = codegen.generate(&program);
-
-    // -- write output (create parent dirs if needed) --------------
+    // -- write output ---------------------------------------------
     if let Some(parent) = std::path::Path::new(&out_path).parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-                eprintln!(
-                    "error: could not create output directory '{}': {}",
-                    parent.display(),
-                    e
-                );
+                eprintln!("error: could not create output directory '{}': {}", parent.display(), e);
                 process::exit(1);
             });
         }
@@ -216,9 +214,7 @@ fn main() {
         process::exit(1);
     });
 
-    if opts.verbose {
-        eprintln!("      {} bytes written", rom.len());
-    }
+    if opts.verbose { eprintln!("      {} bytes written", rom.len()); }
 
     println!("ok  {} -> {} ({} bytes)", opts.input, out_path, rom.len());
 }

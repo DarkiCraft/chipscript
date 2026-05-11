@@ -5,6 +5,7 @@ use crate::error::*;
 use crate::ir::{IrOp, Quad};
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub struct Codegen {
     rom: Vec<u8>,
     ir: Vec<Quad>,
