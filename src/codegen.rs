@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::ast::*;
-use crate::error::*;
+use crate::error::{fail, CODEGEN};
 use crate::ir::{IrOp, Quad};
 use std::collections::HashMap;
 
@@ -78,12 +78,12 @@ impl Codegen {
         *self
             .registers
             .get(name)
-            .unwrap_or_else(|| fail(format!("no register for variable: {}", name)))
+            .unwrap_or_else(|| fail(CODEGEN, format!("no register for variable '{}'", name)))
     }
 
     fn alloc_reg(&mut self) -> u8 {
         if self.next_reg >= 15 {
-            fail(format!("out of registers!"));
+            fail(CODEGEN, "out of registers (CHIP-8 has 15 usable general-purpose registers)");
         }
         let r = self.next_reg;
         self.next_reg += 1;
@@ -172,7 +172,7 @@ impl Codegen {
         match &sprite.data {
             SpriteData::Inline(b) => b.clone(),
             SpriteData::File(path) => std::fs::read(path)
-                .unwrap_or_else(|_| fail(format!("could not read sprite file: {}", path))),
+                .unwrap_or_else(|_| fail(CODEGEN, format!("could not read sprite file: '{}'", path))),
         }
     }
 
@@ -432,7 +432,7 @@ impl Codegen {
                 self.emit(0x1000);
                 o
             }
-            _ => fail(format!("non-comparison op in comparison jump")),
+            _ => fail(CODEGEN, "internal error: non-comparison op passed to emit_comparison_jump"),
         };
 
         self.free_regs(2);
@@ -444,7 +444,7 @@ impl Codegen {
         let addr = *self
             .fn_addrs
             .get(name)
-            .unwrap_or_else(|| fail(format!("unknown function: {}", name)));
+            .unwrap_or_else(|| fail(CODEGEN, format!("call to unknown function '{}' (missing forward declaration?)", name)));
 
         // copy arg expressions into registers starting at next_reg
         // these MUST match what emit_fn allocated for the function args
@@ -519,11 +519,11 @@ impl Codegen {
                 let addr = *self
                     .sprite_addrs
                     .get(sprite_name.as_str())
-                    .unwrap_or_else(|| fail(format!("sprite address not found: {}", sprite_name)));
+                    .unwrap_or_else(|| fail(CODEGEN, format!("sprite '{}' has no recorded address", sprite_name)));
                 let height = *self
                     .sprite_heights
                     .get(sprite_name.as_str())
-                    .unwrap_or_else(|| fail(format!("sprite height not found: {}", sprite_name)))
+                    .unwrap_or_else(|| fail(CODEGEN, format!("sprite '{}' has no recorded height", sprite_name)))
                     as u16;
                 self.emit(0xA000 | addr);
                 self.emit(0xD000 | ((xr as u16) << 8) | ((yr as u16) << 4) | height);
@@ -580,7 +580,7 @@ impl Codegen {
                     self.quad(IrOp::Rand, Some(&n.to_string()), None, Some(&dest_s));
                     self.emit(0xC000 | ((dest as u16) << 8) | (*n as u16));
                 } else {
-                    fail(format!("rand() mask must be an integer literal"));
+                    fail(CODEGEN, "rand() mask must be an integer literal (this should have been caught by the analyzer)");
                 }
             }
         }

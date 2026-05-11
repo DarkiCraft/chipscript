@@ -1,90 +1,110 @@
 #![allow(dead_code)]
 
 use crate::ast::*;
-use crate::error::*;
-use crate::lexer::Token;
+use crate::error::{fail, fail_at, PARSE};
+use crate::lexer::{Spanned, Token};
 
 pub struct Parser {
-    tokens: Vec<Token>,
+    tokens: Vec<Spanned>,
     pos: usize,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Spanned>) -> Self {
         Parser { tokens, pos: 0 }
     }
 
-    // look at current token without consuming
+    // -- token access helpers ------------------------------------
+
+    /// Current token (without consuming).
     fn peek(&self) -> &Token {
-        &self.tokens[self.pos]
+        &self.tokens[self.pos].0
     }
 
-    // consume and return current token
+    /// Line number of the current token.
+    fn line(&self) -> u32 {
+        self.tokens[self.pos].1
+    }
+
+    /// Consume and return the current token.
     fn advance(&mut self) -> &Token {
-        let t = &self.tokens[self.pos];
+        let t = &self.tokens[self.pos].0;
         self.pos += 1;
         t
     }
 
-    // consume current token ONLY if it matches, else panic
+    /// Consume the current token only if it matches `expected`, else abort.
     fn expect(&mut self, expected: &Token) -> &Token {
-        let t = &self.tokens[self.pos];
+        let (t, ln) = &self.tokens[self.pos];
         if t != expected {
-            fail(format!("expected {:?} but got {:?}", expected, t));
+            fail_at(
+                PARSE,
+                *ln,
+                format!("expected {:?} but got {:?}", expected, t),
+            );
         }
         self.pos += 1;
-        &self.tokens[self.pos - 1]
+        &self.tokens[self.pos - 1].0
     }
 
-    // check current token without consuming
+    /// True if the current token matches `expected` (does not consume).
     fn check(&self, expected: &Token) -> bool {
         self.peek() == expected
     }
 
     // -- ENTRY POINT ------------------------------------------
     pub fn parse(&mut self) -> Program {
-        let mut sprites = Vec::new();
-        let mut vars = Vec::new();
+        let mut sprites   = Vec::new();
+        let mut vars      = Vec::new();
         let mut functions = Vec::new();
-        let mut main = Vec::new();
+        let mut main      = Vec::new();
 
         while !self.check(&Token::EOF) {
+            let ln = self.line();
             match self.peek().clone() {
                 Token::Sprites => sprites = self.parse_sprites_block(),
-                Token::Vars => vars = self.parse_vars(),
-                Token::Fn => functions.push(self.parse_fn()),
-                Token::Main => main = self.parse_main(),
-                other => fail(format!("unexpected token at top level: {:?}", other)),
+                Token::Vars    => vars    = self.parse_vars(),
+                Token::Fn      => functions.push(self.parse_fn()),
+                Token::Main    => main    = self.parse_main(),
+                other => fail_at(
+                    PARSE,
+                    ln,
+                    format!("unexpected token at top level: {:?}", other),
+                ),
             }
         }
 
-        Program {
-            sprites,
-            vars,
-            functions,
-            main,
-        }
+        Program { sprites, vars, functions, main }
     }
 
     // -- SPRITE -----------------------------------------------
     fn parse_sprites_block(&mut self) -> Vec<SpriteDecl> {
-        self.advance(); // consume 'sprite'
+        self.advance(); // consume 'sprites'
         self.expect(&Token::LBrace);
         let mut sprites = Vec::new();
+
         while !self.check(&Token::RBrace) {
+            let ln = self.line();
             let name = match self.advance().clone() {
                 Token::Ident(n) => n,
-                other => panic!("expected sprite name, got {:?}", other),
+                other => fail_at(PARSE, ln, format!("expected sprite name, got {:?}", other)),
             };
             self.expect(&Token::Equals);
+
+            let data_ln = self.line();
             let data = match self.peek().clone() {
                 Token::LBracket => {
                     self.advance();
                     let mut bytes = Vec::new();
                     while !self.check(&Token::RBracket) {
+                        let byte_ln = self.line();
                         match self.advance().clone() {
                             Token::Int(b) => bytes.push(b as u8),
-                            other => panic!("expected byte in sprite, got {:?}", other),
+                            other => fail_at(
+                                PARSE,
+                                byte_ln,
+                                format!("expected byte in sprite data, got {:?}", other),
+                            ),
                         }
                         if self.check(&Token::Comma) {
                             self.advance();
@@ -98,7 +118,11 @@ impl Parser {
                     self.advance();
                     SpriteData::File(s)
                 }
-                other => panic!("expected sprite data, got {:?}", other),
+                other => fail_at(
+                    PARSE,
+                    data_ln,
+                    format!("expected '[' or string path for sprite data, got {:?}", other),
+                ),
             };
             self.expect(&Token::Semicolon);
             sprites.push(SpriteDecl { name, data });
@@ -112,10 +136,12 @@ impl Parser {
         self.advance(); // consume 'vars'
         self.expect(&Token::LBrace);
         let mut vars = Vec::new();
+
         while !self.check(&Token::RBrace) {
+            let ln = self.line();
             let name = match self.advance().clone() {
                 Token::Ident(n) => n,
-                other => fail(format!("expected variable name, got {:?}", other)),
+                other => fail_at(PARSE, ln, format!("expected variable name, got {:?}", other)),
             };
             self.expect(&Token::Equals);
             let value = self.parse_expr();
@@ -129,16 +155,18 @@ impl Parser {
     // -- FN ---------------------------------------------------
     fn parse_fn(&mut self) -> FnDecl {
         self.advance(); // consume 'fn'
+        let name_ln = self.line();
         let name = match self.advance().clone() {
             Token::Ident(n) => n,
-            other => fail(format!("expected function name, got {:?}", other)),
+            other => fail_at(PARSE, name_ln, format!("expected function name, got {:?}", other)),
         };
         self.expect(&Token::LParen);
         let mut args = Vec::new();
         while !self.check(&Token::RParen) {
+            let arg_ln = self.line();
             match self.advance().clone() {
                 Token::Ident(n) => args.push(n),
-                other => fail(format!("expected arg name, got {:?}", other)),
+                other => fail_at(PARSE, arg_ln, format!("expected argument name, got {:?}", other)),
             }
             if self.check(&Token::Comma) {
                 self.advance();
@@ -146,17 +174,13 @@ impl Parser {
         }
         self.expect(&Token::RParen);
         self.expect(&Token::Arrow);
+        let ret_ln = self.line();
         let ret = match self.advance().clone() {
             Token::Ident(n) => n,
-            other => fail(format!("expected return name, got {:?}", other)),
+            other => fail_at(PARSE, ret_ln, format!("expected return variable name, got {:?}", other)),
         };
         let body = self.parse_block();
-        FnDecl {
-            name,
-            args,
-            ret,
-            body,
-        }
+        FnDecl { name, args, ret, body }
     }
 
     // -- MAIN -------------------------------------------------
@@ -178,9 +202,10 @@ impl Parser {
 
     // -- STATEMENT --------------------------------------------
     fn parse_stmt(&mut self) -> Stmt {
+        let ln = self.line();
         match self.peek().clone() {
-            Token::If => self.parse_if(),
-            Token::Loop => {
+            Token::If    => self.parse_if(),
+            Token::Loop  => {
                 self.advance();
                 let body = self.parse_block();
                 Stmt::Loop(body)
@@ -210,16 +235,22 @@ impl Parser {
                 Stmt::Beep(e)
             }
             Token::Ident(_) => self.parse_assign_or_call(),
-            other => fail(format!("unexpected token in statement: {:?}", other)),
+            other => fail_at(
+                PARSE,
+                ln,
+                format!("unexpected token at start of statement: {:?}", other),
+            ),
         }
     }
 
     // -- ASSIGN or CALL ---------------------------------------
     fn parse_assign_or_call(&mut self) -> Stmt {
+        let ln = self.line();
         let name = match self.advance().clone() {
             Token::Ident(n) => n,
-            other => fail(format!("expected ident, got {:?}", other)),
+            other => fail_at(PARSE, ln, format!("expected identifier, got {:?}", other)),
         };
+        let after_ln = self.line();
         match self.peek().clone() {
             Token::Equals => {
                 self.advance();
@@ -240,7 +271,11 @@ impl Parser {
                 self.expect(&Token::Semicolon);
                 Stmt::Call(name, args)
             }
-            other => fail(format!("expected = or ( after ident, got {:?}", other)),
+            other => fail_at(
+                PARSE,
+                after_ln,
+                format!("expected '=' or '(' after '{}', got {:?}", name, other),
+            ),
         }
     }
 
@@ -251,18 +286,17 @@ impl Parser {
         let cond = self.parse_expr();
         self.expect(&Token::RParen);
         let body = self.parse_block();
-        let mut elseifs = Vec::new();
+
+        let mut elseifs   = Vec::new();
         let mut else_body = None;
+
         while self.check(&Token::Elif) {
             self.advance();
             self.expect(&Token::LParen);
             let c = self.parse_expr();
             self.expect(&Token::RParen);
             let b = self.parse_block();
-            elseifs.push(ElseIf {
-                condition: c,
-                body: b,
-            });
+            elseifs.push(ElseIf { condition: c, body: b });
         }
         if self.check(&Token::Else) {
             self.advance();
@@ -290,20 +324,20 @@ impl Parser {
         let mut left = self.parse_unary();
         loop {
             let op = match self.peek() {
-                Token::Plus => Op::Add,
-                Token::Minus => Op::Sub,
-                Token::Star => Op::Mul,
-                Token::Slash => Op::Div,
+                Token::Plus    => Op::Add,
+                Token::Minus   => Op::Sub,
+                Token::Star    => Op::Mul,
+                Token::Slash   => Op::Div,
                 Token::Percent => Op::Mod,
-                Token::EqEq => Op::EqEq,
-                Token::NotEq => Op::NotEq,
-                Token::Lt => Op::Lt,
-                Token::Gt => Op::Gt,
-                Token::LtEq => Op::LtEq,
-                Token::GtEq => Op::GtEq,
-                Token::And => Op::And,
-                Token::Or => Op::Or,
-                _ => break,
+                Token::EqEq    => Op::EqEq,
+                Token::NotEq   => Op::NotEq,
+                Token::Lt      => Op::Lt,
+                Token::Gt      => Op::Gt,
+                Token::LtEq    => Op::LtEq,
+                Token::GtEq    => Op::GtEq,
+                Token::And     => Op::And,
+                Token::Or      => Op::Or,
+                _              => break,
             };
             self.advance();
             let right = self.parse_unary();
@@ -321,6 +355,7 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Expr {
+        let ln = self.line();
         match self.peek().clone() {
             Token::Int(n) => {
                 self.advance();
@@ -347,9 +382,14 @@ impl Parser {
                 self.expect(&Token::Comma);
                 let y = self.parse_expr();
                 self.expect(&Token::Comma);
+                let sprite_ln = self.line();
                 let sprite = match self.advance().clone() {
                     Token::Ident(n) => n,
-                    other => fail(format!("expected sprite name in draw(), got {:?}", other)),
+                    other => fail_at(
+                        PARSE,
+                        sprite_ln,
+                        format!("expected sprite name in draw(), got {:?}", other),
+                    ),
                 };
                 self.expect(&Token::RParen);
                 Expr::Draw(Box::new(x), Box::new(y), sprite)
@@ -409,7 +449,17 @@ impl Parser {
                     Expr::Var(n)
                 }
             }
-            other => fail(format!("unexpected token in expression: {:?}", other)),
+            other => fail_at(
+                PARSE,
+                ln,
+                format!("unexpected token in expression: {:?}", other),
+            ),
         }
     }
+}
+
+// -- standalone helper used from main.rs ---------------------------------
+/// Re-export so callers can use `parser::fail` without importing error directly.
+pub fn fail_phase(msg: impl AsRef<str>) -> ! {
+    fail(PARSE, msg)
 }
