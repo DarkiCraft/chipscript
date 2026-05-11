@@ -250,31 +250,13 @@ Load your compiled `.ch8` file in any CHIP-8 emulator:
 src/
 ├── main.rs       # CLI entry point and compilation driver
 ├── error.rs      # Error reporting
-├── lexer.rs      # Tokenizer (source → token stream)
+├── lexer.rs      # Tokenizer
 ├── ast.rs        # AST node definitions
 ├── parser.rs     # Parser (tokens → AST)
 ├── analyzer.rs   # Semantic analyzer
 ├── optimizer.rs  # Multi-pass AST optimizer
 ├── ir.rs         # IR quadruple definitions
-├── codegen.rs    # CHIP-8 bytecode generator (AST → IR → ROM)
-└── bin/
-    ├── lexer.rs      # Phase 1 standalone binary
-    ├── parser.rs     # Phase 2 standalone binary
-    ├── analyzer.rs   # Phase 3 standalone binary
-    ├── ir.rs         # Phase 4 standalone binary
-    ├── optimizer.rs  # Phase 5 standalone binary
-    └── codegen.rs    # Phase 6 standalone binary
-```
-
-Each phase can also be run as a standalone executable after `cargo build`:
-
-```bash
-./target/debug/lexer    game.cs   # token stream
-./target/debug/parser   game.cs   # AST
-./target/debug/analyzer game.cs   # semantic check
-./target/debug/ir       game.cs   # IR quads
-./target/debug/optimizer game.cs  # optimized AST
-./target/debug/codegen  game.cs   # compile to out.ch8
+└── codegen.rs    # CHIP-8 bytecode generator
 ```
 
 ## License
