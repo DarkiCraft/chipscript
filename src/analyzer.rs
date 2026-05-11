@@ -207,6 +207,45 @@ impl Analyzer {
         }
     }
 
+    // -- SYMBOL TABLE DUMP ----------------------------------------
+    pub fn dump_symtable(&self) {
+        println!("{:<20} {:<10} {}", "NAME", "TYPE", "SCOPE");
+        println!("{}", "-".repeat(40));
+
+        // global vars
+        for (name, ty) in &self.vars {
+            let ty_str = match ty {
+                Type::Int  => "int",
+                Type::Bool => "bool",
+            };
+            println!("{:<20} {:<10} global", name, ty_str);
+        }
+
+        // functions (name + arity)
+        for (name, (args, ret)) in &self.functions {
+            println!(
+                "{:<20} {:<10} function  args={} ret={}",
+                name,
+                "fn",
+                args.len(),
+                ret
+            );
+        }
+
+        // sprites
+        for name in &self.sprites {
+            println!("{:<20} {:<10} sprite", name, "sprite");
+        }
+
+        println!("{}", "-".repeat(40));
+        println!(
+            "{} var(s), {} function(s), {} sprite(s)",
+            self.vars.len(),
+            self.functions.len(),
+            self.sprites.len()
+        );
+    }
+
     // -- TYPE INFERENCE -------------------------------------------
     fn type_of_expr(&self, expr: &Expr) -> Type {
         match expr {

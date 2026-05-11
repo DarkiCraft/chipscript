@@ -22,6 +22,7 @@ Options:
       --emit-tokens   Lex only       — print tokens and stop
       --emit-ast      Lex + parse    — print AST before optimization and stop
       --emit-ast-opt  Lex + parse + optimize — print optimized AST and stop
+      --emit-symtable Print symbol table after semantic analysis and stop
       --emit-ir       Full pipeline  — print IR quads and stop
       --emit-rom-hex  Full pipeline  — print ROM as hex dump instead of writing file
   -V, --version       Print version and exit
@@ -48,7 +49,8 @@ struct Opts {
     emit_ast:     bool,
     emit_ast_opt: bool,
     emit_ir:      bool,
-    emit_rom_hex: bool,
+    emit_rom_hex:  bool,
+    emit_symtable: bool,
 }
 
 fn parse_args() -> Opts {
@@ -69,6 +71,7 @@ fn parse_args() -> Opts {
     let mut emit_ast_opt = false;
     let mut emit_ir      = false;
     let mut emit_rom_hex = false;
+    let mut emit_symtable = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -89,6 +92,7 @@ fn parse_args() -> Opts {
             "--emit-ast-opt"    => emit_ast_opt  = true,
             "--emit-ir"         => emit_ir       = true,
             "--emit-rom-hex"    => emit_rom_hex  = true,
+            "--emit-symtable"   => emit_symtable = true,
             "-o" => {
                 i += 1;
                 if i >= args.len() {
@@ -126,7 +130,7 @@ fn parse_args() -> Opts {
     };
 
     Opts { input, output, verbose, no_analyze, no_opt,
-           emit_tokens, emit_ast, emit_ast_opt, emit_ir, emit_rom_hex }
+           emit_tokens, emit_ast, emit_ast_opt, emit_ir, emit_rom_hex, emit_symtable }
 }
 
 fn main() {
@@ -177,6 +181,10 @@ fn main() {
         if opts.verbose { eprintln!("[3/5] analyzing"); }
         let mut analyzer = analyzer::Analyzer::new();
         analyzer.analyze(&program);
+        if opts.emit_symtable {
+            analyzer.dump_symtable();
+            return;
+        }
         if opts.verbose { eprintln!("      ok"); }
     }
 
