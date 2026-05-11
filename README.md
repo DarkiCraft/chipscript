@@ -259,6 +259,40 @@ src/
 └── codegen.rs    # CHIP-8 bytecode generator
 ```
 
+## Sample input/output
+
+Program that displays a random hex digit on the screen at intervals
+```
+vars {
+    n = 0;
+    t = 0;
+    b = false;
+}
+ 
+main {
+    loop {
+        // set delay timer to 60 ticks (~1 second at 60 Hz)
+        delay(60);
+ 
+        // spin until the timer hits zero
+        t = getdelay();
+        while (t != 0) {
+            t = getdelay();
+        }
+ 
+        // rand(0x0F) gives a random value 0-15, drawdigit handles 0-F natively
+        n = rand(0x0F);
+ 
+        clear();
+        b = drawdigit(30, 13, n);
+    }
+}
+```
+Output:
+![1](sample/1.png)
+![2](sample/2.png)
+![3](sample/3.png)
+
 ## License
 
 MIT — see [LICENSE](LICENSE) for details.

@@ -8,6 +8,9 @@ use chipscript::lexer::{self, Token};
 
 fn lex(src: &str) -> Vec<Token> {
     lexer::lex(src.to_string())
+        .into_iter()
+        .map(|(tok, _line)| tok)  // strip the line number
+        .collect()
 }
 
 fn lex_no_eof(src: &str) -> Vec<Token> {
