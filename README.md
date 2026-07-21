@@ -211,13 +211,13 @@ main {
 
 ### Operators
 
-| Category | Operators | Precedence tier |
-|---|---|---|---|
-| Unary | `not` | highest |
-| Multiplicative | `*` `/` `%` | highest binary |
-| Additive | `+` `-` | ↑ |
-| Comparison | `==` `!=` `<` `>` `<=` `>=` | |
-| Logic | `and` `or` | lowest |
+| Category | Operators | Precedence |
+|---|---|---|
+| Unary | `not` | 5 (tightest) |
+| Multiplicative | `*` `/` `%` | 4 |
+| Additive | `+` `-` | 3 |
+| Comparison | `==` `!=` `<` `>` `<=` `>=` | 2 |
+| Logic | `and` `or` | 1 (loosest) |
 
 ## Running ROMs
 
