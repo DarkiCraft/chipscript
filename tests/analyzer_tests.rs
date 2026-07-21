@@ -105,8 +105,8 @@ fn beep_accepts_int() {
 }
 
 #[test]
-fn exactly_15_vars_allowed() {
-    let vars: String = (0..15)
+fn exactly_14_vars_allowed() {
+    let vars: String = (0..14)
         .map(|i| format!("v{} = 0;", i))
         .collect::<Vec<_>>()
         .join(" ");
@@ -212,7 +212,7 @@ fn undeclared_sprite_errors() {
 
 #[test]
 fn too_many_vars_errors() {
-    let vars: String = (0..16)
+    let vars: String = (0..15)
         .map(|i| format!("v{} = 0;", i))
         .collect::<Vec<_>>()
         .join(" ");

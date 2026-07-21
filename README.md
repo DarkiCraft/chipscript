@@ -9,7 +9,7 @@ chipscript game.cs → out.ch8
 ## Features
 
 - **Full 6-phase compilation pipeline** — lexing, parsing, semantic analysis, AST optimization, IR generation, and target code generation
-- **Two types, zero surprises** — `int` (8-bit signed) and `bool`; no implicit conversions
+- **Two types, zero surprises** — `int` (8-bit unsigned, 0–255) and `bool`; no implicit conversions
 - **Built-in hardware abstractions** — draw sprites, poll the keypad, use timers and sound with simple function calls
 - **Multi-pass AST optimizer** — constant folding, dead code elimination, and strength reduction via fixed-point iteration
 - **Quadruple-based IR** — structured intermediate representation exposed via `--emit-ir`
@@ -47,8 +47,9 @@ Options:
       --no-analyze    Skip semantic analysis
       --no-opt        Skip optimization pass
       --emit-tokens   Lex only       — print tokens and stop
-      --emit-ast      Lex + parse    — print AST before optimization and stop
+      --emit-ast       Lex + parse    — print AST before optimization and stop
       --emit-ast-opt  Lex + parse + optimize — print optimized AST and stop
+      --emit-symtable Lex + parse + analyze — print symbol table and stop
       --emit-ir       Full pipeline  — print IR quads and stop
       --emit-rom-hex  Full pipeline  — print ROM as hex dump instead of writing file
   -V, --version       Print version and exit
@@ -148,16 +149,16 @@ Only `main` is required. Sections can appear in any order.
 
 ChipScript has exactly two types — there is no implicit conversion between them.
 
-| Type   | Values          | Notes                           |
-|--------|-----------------|---------------------------------|
-| `int`  | −128 to 127     | 8-bit signed, wraps on overflow |
+| Type   | Values        | Notes                           |
+|--------|---------------|---------------------------------|
+| `int`  | 0 to 255      | 8-bit unsigned, wraps mod 256   |
 | `bool` | `true`, `false` | Cannot mix with `int`           |
 
 Types are always inferred — there are no type annotations.
 
 ### Variables
 
-All globals are declared in `vars {}` and must be initialised with a literal. Maximum of 15 variables (one register per variable, VF is reserved by hardware).
+All globals are declared in `vars {}` and must be initialised with a constant expression (literals combined with operators). Maximum of 14 variables (V0 is scratch, VF is the hardware flag).
 
 ```
 vars {
@@ -167,7 +168,7 @@ vars {
 }
 ```
 
-### Control flow
+### Control Flow
 
 ```cs
 if (condition) { ... } elif (condition) { ... } else { ... }
@@ -185,7 +186,7 @@ fn add(a, b) -> result {
 }
 ```
 
-Functions are declared with `fn`, take named arguments, and return via a named return variable. Called as expressions or statements:
+Functions are declared with `fn`, take named arguments, and return via a named return variable. Called as expressions or statements — including nested calls and calls from other functions. Recursion is detected and rejected at compile time.
 
 ```cs
 vars { total = 0; }
@@ -194,7 +195,7 @@ main {
 }
 ```
 
-### Built-in functions
+### Built-in Functions
 
 | Function | Returns | Description |
 |---|---|---|
@@ -206,15 +207,17 @@ main {
 | `delay(n)` | — | Set delay timer (counts down at 60 Hz) |
 | `getdelay()` | `int` | Read current delay timer value |
 | `beep(n)` | — | Set sound timer (beeps while nonzero) |
-| `rand(mask)` | `int` | Random byte ANDed with a literal mask |
+| `rand(mask)` | `int` | Random byte ANDed with a literal mask (0–255) |
 
 ### Operators
 
-| Category | Operators |
-|---|---|
-| Arithmetic | `+` `-` `*` `/` `%` |
-| Comparison | `==` `!=` `<` `>` `<=` `>=` |
-| Logic | `and` `or` `not` |
+| Category | Operators | Precedence tier |
+|---|---|---|---|
+| Unary | `not` | highest |
+| Multiplicative | `*` `/` `%` | highest binary |
+| Additive | `+` `-` | ↑ |
+| Comparison | `==` `!=` `<` `>` `<=` `>=` | |
+| Logic | `and` `or` | lowest |
 
 ## Running ROMs
 
@@ -235,14 +238,15 @@ Load your compiled `.ch8` file in any CHIP-8 emulator:
 
 ## Hardware Limits
 
-| Resource      | Limit       | Notes                              |
-|---------------|-------------|------------------------------------|
-| Screen        | 64 × 32 px  | Monochrome; sprites wrap at edges  |
-| Variables     | 15 max      | One CHIP-8 register each           |
-| Sprite height | 1–15 rows   | 8 pixels wide, fixed               |
-| Integer range | −128 to 127 | Overflow wraps silently            |
-| Call stack    | 16 levels   | CHIP-8 hardware limit              |
-| Timer freq    | 60 Hz       | Both delay and sound timers        |
+| Resource      | Limit          | Notes                              |
+|---------------|----------------|------------------------------------|
+| Screen        | 64 × 32 px     | Monochrome; sprites wrap at edges  |
+| Variables     | 14 max         | V0 scratch, VF flag, V1–V14 work  |
+| Sprite height | 1–15 rows      | 8 pixels wide, fixed               |
+| Integer range | 0–255          | 8-bit unsigned; wraps mod 256      |
+| Call stack    | 16 levels      | Enforced by compiler               |
+| ROM size      | ≤ 3584 bytes   | 0x200–0xFFF; enforced by compiler |
+| Timer freq    | 60 Hz          | Both delay and sound timers        |
 
 ## Project Structure
 
@@ -259,7 +263,7 @@ src/
 └── codegen.rs    # CHIP-8 bytecode generator
 ```
 
-## Sample input/output
+## Sample Program
 
 Program that displays a random hex digit on the screen at intervals
 ```
@@ -288,10 +292,6 @@ main {
     }
 }
 ```
-Output:
-![1](sample/1.png)
-![2](sample/2.png)
-![3](sample/3.png)
 
 ## License
 

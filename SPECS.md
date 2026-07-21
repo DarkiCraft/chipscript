@@ -62,9 +62,9 @@ main {
 
 ChipScript has exactly two types. There is no implicit conversion between them.
 
-| Type   | Values          | Storage        | Notes                              |
-|--------|-----------------|----------------|------------------------------------|
-| `int`  | −128 to 127     | 8-bit signed   | Two's complement, wraps on overflow |
+| Type   | Values      | Storage          | Notes                              |
+|--------|-------------|------------------|------------------------------------|
+| `int`  | 0 to 255    | 8-bit unsigned   | Wraps mod 256 on overflow/underflow |
 | `bool` | `true`, `false` | 8-bit (0 or 1) | Sugar over 0/1; cannot mix with int |
 
 Type is always inferred from context — there are no type annotations.
@@ -132,19 +132,18 @@ vars {
 
 ### Rules
 
-- Maximum **15 variables** total (one CHIP-8 register is reserved as a flag)
+- Maximum **14 variables** total (V0 is reserved as a general-purpose scratch register, VF is a hardware flag)
 - Variables may only be declared inside `vars {}` — not inside functions or `main`
 - All variables are global and accessible from `main` and all functions
 - No shadowing; every name must be unique across vars, function names, and sprite names
-- Initial value must be a compile-time literal (`int` or `bool`), not an expression
+- Initial value must be a **constant expression** (literals combined with arithmetic/logic operators only — no variables, function calls, or builtins)
 
 ### Integer literals
 
 | Form        | Example  | Notes                            |
 |-------------|----------|----------------------------------|
-| Decimal     | `42`     | Signed, range −128 to 127        |
+| Decimal     | `42`     | Unsigned byte, range 0–255       |
 | Hexadecimal | `0xFF`   | Prefix `0x`, digits `0-9 a-f A-F`|
-| Negative    | `-10`    | Minus immediately before digits  |
 
 
 ## 6. Functions
@@ -160,8 +159,10 @@ fn name(arg1, arg2) -> ret {
 - The return value is whatever `ret` holds when the function body finishes
 - No `return` keyword; just assign to the return variable name
 - Functions must be declared at the top level; no nested functions
-- **No recursion** — calling a function from within itself is undefined behaviour
-- The compiler enforces a **register budget** at every call site: `vars used + args + 1 (return slot) ≤ 15`
+- **No recursion** — calling a function from within itself or through a mutual cycle is a compile-time error (detected by call-graph analysis)
+- The compiler enforces a **register budget**: `variables used + function frame (args + 1 return) + max expression temporaries ≤ 14`
+- Function calls may appear **anywhere** an expression is expected — including nested calls (`add(a, add(b, c))`) and calls from other functions
+- The maximum **call chain depth** from `main` is **16 levels** (the CHIP-8 hardware call-stack limit); the compiler rejects deeper chains
 
 ### Calling a function
 
@@ -246,9 +247,8 @@ beep(n);        // set sound timer to n (int); beeps while nonzero
 ### Literals
 
 ```
-42        // int literal
-0xFF      // int literal (hex)
--10       // int literal (negative)
+42        // int literal (decimal, 0–255)
+0xFF      // int literal (hex, 0x00–0xFF)
 true      // bool literal
 false     // bool literal
 ```
@@ -268,13 +268,25 @@ a and b
 // etc. — see section 9
 ```
 
-All binary operators are **left-associative with equal precedence**.
-Use parentheses to control evaluation order:
+ChipScript implements **conventional precedence tiers** with left associativity within each tier. From lowest to highest:
+
+| Tier     | Operators                          |
+|----------|------------------------------------|
+| `or`     | `or`                               |
+| `and`    | `and`                              |
+| comparison | `==` `!=` `<` `>` `<=` `>=`     |
+| additive | `+` `-`                            |
+| multiplicative | `*` `/` `%`                  |
+
+Precedence is always resolved explicitly:
 
 ```
-a + (b * c)    // multiplication happens first
-(a + b) * c    // addition happens first
+x + y * z        → x + (y * z)   // multiplication first
+x < 5 and y < 6  → (x < 5) and (y < 6)
+not a and b      → (not a) and b
 ```
+
+Use parentheses to override:
 
 ### Unary not
 
@@ -334,17 +346,10 @@ Division and modulo with a zero divisor produce undefined behaviour (hardware lo
 
 ### Precedence
 
-ChipScript does **not** implement conventional operator precedence.
-All binary operators have equal precedence and associate left-to-right.
-Always use parentheses when mixing different operator kinds:
-
-```
-// ambiguous intent — avoid:
-hit = a + b == c
-
-// clear intent:
-hit = (a + b) == c
-```
+ChipScript implements conventional precedence tiers (see §8):
+`or` < `and` < comparison < additive < multiplicative.
+All operators are left-associative within their tier.
+When in doubt, add parentheses.
 
 
 ## 10. Built-in Functions
@@ -373,7 +378,7 @@ All digit sprites are 5 rows × 8 pixels. Returns collision flag same as `draw`.
 hit = drawdigit(10, 5, score);
 ```
 
-- `n` — `int`, interpreted as 0x0–0xF; values outside this range are masked by hardware
+- `n` — `int`, interpreted as 0x0–0xF; the compiler masks values with `AND 0x0F` so values outside 0–15 are always defined
 - Return type: `bool`
 
 ### clear()
@@ -443,7 +448,7 @@ Returns a random byte ANDed with `mask`. `mask` must be an **integer literal** �
 
 ```
 r = rand(0x03);   // random value 0, 1, 2, or 3
-r = rand(0xFF);   // random value 0–255 (as signed: -128 to 127)
+r = rand(0xFF);   // random value 0–255
 ```
 
 - `mask` — compile-time integer literal only
@@ -470,14 +475,15 @@ These limits are imposed by the CHIP-8 architecture and enforced by the compiler
 | Resource            | Limit    | Notes                                               |
 |---------------------|----------|-----------------------------------------------------|
 | Screen              | 64 × 32 px | Monochrome; draw wraps at edges                    |
-| Memory              | 4 KB total | ~3.5 KB available for program + sprites            |
-| Registers           | 15 usable  | V0–V14; VF reserved as hardware flag               |
-| Variables           | 15 max     | One per register                                    |
+| Memory              | 4 KB total | ~3.5 KB (3584 bytes) available for program + sprites; enforced by the compiler |
+| Registers           | 14 work + V0 scratch + VF flag | V0 reserved as scratch; V1–V14 work region; VF flag |
+| Variables           | 14 max     | One per register; V0 is scratch, VF is flag        |
 | Sprite height       | 1–15 rows  | Hardware nibble; enforced at compile time          |
 | Sprite width        | 8 px fixed | Cannot be changed                                   |
-| Call stack depth    | 16 levels  | CHIP-8 hardware limit; compiler does not track this |
+| Call stack depth    | 16 levels  | Enforced by the compiler; maximum call chain depth from main |
 | Timer frequency     | 60 Hz      | Both delay and sound timers count down at 60 Hz     |
-| Integer range       | −128–127   | 8-bit signed; overflow wraps silently               |
+| Integer range       | 0–255      | 8-bit unsigned; wraps mod 256 on overflow/underflow |
+| ROM size            | ≤ 3584 bytes | Program image (code + sprites + save areas) must fit; the compiler rejects larger programs |
 
 
 ## 12. Compile Errors
@@ -486,7 +492,7 @@ The compiler exits with a non-zero status and prints a message to stderr on any 
 
 | Error                              | Cause                                                          |
 |------------------------------------|----------------------------------------------------------------|
-| `too many variables`               | More than 15 variables declared in `vars {}`                   |
+| `too many variables`               | More than 14 variables declared in `vars {}`                   |
 | `undeclared variable`              | Reference to a name not declared in `vars {}`                  |
 | `undeclared function`              | Call to a function not defined with `fn`                       |
 | `undeclared sprite`                | `draw()` references a sprite name not in `sprites {}`          |
@@ -494,10 +500,21 @@ The compiler exits with a non-zero status and prints a message to stderr on any 
 | `if/elif/while condition not bool` | Condition expression evaluates to `int`                        |
 | `arithmetic requires int`          | `+`, `-`, `*`, `/`, `%` used on `bool` operands                |
 | `logic requires bool`              | `and`, `or`, `not` used on `int` operands                      |
-| `comparison between different types` | `==`, `<`, etc. comparing `int` and `bool`                   |
-| `not enough register slots`        | Function call would exceed 15 total register slots             |
+| `comparison on bool`               | `<`, `>`, `<=`, `>=` on `bool` operands                          |
+| `ordered comparison requires int`  | `<`, `>`, `<=`, `>=` comparing bools (only `==`/`!=` allowed)    |
+| `not enough registers`             | Function or expression exceeds the 14-register budget (globals + frame + temps) |
+| `recursive call detected`          | Call graph contains a cycle (no recursion allowed)             |
+| `call chain too deep`              | More than 16 nested function calls (CHIP-8 call stack limit)   |
+| `non-constant initializer`         | Variable initializer is not a literal/constant expression       |
+| `division by zero`                 | Literal or constant-folded division or modulo by zero           |
 | `sprite file not found`            | File-backed sprite path does not exist at compile time         |
 | `sprite too tall`                  | Sprite exceeds 15 rows                                         |
 | `sprite is empty`                  | Sprite has zero bytes                                          |
 | `rand() mask must be a literal`    | `rand()` called with a variable instead of a literal           |
+| `integer literal out of range`     | Decimal literal > 255 or hex literal > 0xFF                    |
+| `duplicate section`                | A `sprites`/`vars`/`main` section appears more than once       |
+| `duplicate name`                   | Name used in multiple declarations within the same namespace   |
+| `name collision`                   | Same name used as both a variable and a function or sprite     |
+| `function argument not int`        | Non-int argument passed to a user-defined function             |
+| `program too large`                | Compiled ROM image exceeds 3584 bytes (CHIP-8 memory limit)   |
 | `could not read file`              | Input `.cs` file could not be opened                           |

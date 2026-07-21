@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use crate::error::{fail_at, LEX};
+use crate::error::{LEX, fail_at};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     // -- LITERALS ------------------------------
-    Int(i16),      // 10, 255
+    Int(u8),       // 10, 255 (unsigned byte 0–255)
     Bool(bool),    // true, false
     Ident(String), // variable names, function names
 
@@ -77,41 +77,29 @@ pub fn lex(source: String) -> Vec<Spanned> {
     while let Some(c) = chars.next() {
         match c {
             // -- whitespace (track newlines) --------------------------
-            '\n' => { line += 1; }
+            '\n' => {
+                line += 1;
+            }
             ' ' | '\t' | '\r' => {}
 
             // -- single-character tokens ------------------------------
-            '(' => tokens.push((Token::LParen,    line)),
-            ')' => tokens.push((Token::RParen,    line)),
-            '{' => tokens.push((Token::LBrace,    line)),
-            '}' => tokens.push((Token::RBrace,    line)),
-            '[' => tokens.push((Token::LBracket,  line)),
-            ']' => tokens.push((Token::RBracket,  line)),
+            '(' => tokens.push((Token::LParen, line)),
+            ')' => tokens.push((Token::RParen, line)),
+            '{' => tokens.push((Token::LBrace, line)),
+            '}' => tokens.push((Token::RBrace, line)),
+            '[' => tokens.push((Token::LBracket, line)),
+            ']' => tokens.push((Token::RBracket, line)),
             ';' => tokens.push((Token::Semicolon, line)),
-            ',' => tokens.push((Token::Comma,     line)),
-            '+' => tokens.push((Token::Plus,      line)),
-            '*' => tokens.push((Token::Star,      line)),
-            '%' => tokens.push((Token::Percent,   line)),
+            ',' => tokens.push((Token::Comma, line)),
+            '+' => tokens.push((Token::Plus, line)),
+            '*' => tokens.push((Token::Star, line)),
+            '%' => tokens.push((Token::Percent, line)),
 
             // -- two-character tokens ---------------------------------
             '-' => {
                 if chars.peek() == Some(&'>') {
                     chars.next();
                     tokens.push((Token::Arrow, line));
-                } else if chars.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                    let start_line = line;
-                    let mut num = String::new();
-                    while let Some(&next) = chars.peek() {
-                        if next.is_ascii_digit() {
-                            num.push(chars.next().unwrap());
-                        } else {
-                            break;
-                        }
-                    }
-                    let n: i16 = num.parse().unwrap_or_else(|_| {
-                        fail_at(LEX, start_line, "negative number out of range")
-                    });
-                    tokens.push((Token::Int(-n), start_line));
                 } else {
                     tokens.push((Token::Minus, line));
                 }
@@ -198,9 +186,14 @@ pub fn lex(source: String) -> Vec<Spanned> {
                     if hex.is_empty() {
                         fail_at(LEX, start_line, "expected hex digits after '0x'");
                     }
-                    let value = i16::from_str_radix(&hex, 16).unwrap_or_else(|_| {
-                        fail_at(LEX, start_line, format!("hex literal '0x{}' is too large", hex))
-                    });
+                    let value = match u8::from_str_radix(&hex, 16) {
+                        Ok(v) => v,
+                        Err(_) => fail_at(
+                            LEX,
+                            start_line,
+                            format!("hex literal '0x{}' must be 0x00–0xFF", hex),
+                        ),
+                    };
                     tokens.push((Token::Int(value), start_line));
                 } else {
                     while let Some(&next) = chars.peek() {
@@ -210,9 +203,21 @@ pub fn lex(source: String) -> Vec<Spanned> {
                             break;
                         }
                     }
-                    let value: i16 = num.parse().unwrap_or_else(|_| {
-                        fail_at(LEX, start_line, format!("integer literal '{}' is too large", num))
+                    let raw: u16 = num.parse().unwrap_or_else(|_| {
+                        fail_at(
+                            LEX,
+                            start_line,
+                            format!("integer literal '{}' is too large", num),
+                        )
                     });
+                    if raw > 255 {
+                        fail_at(
+                            LEX,
+                            start_line,
+                            format!("integer literal '{}' out of range (0–255)", raw),
+                        );
+                    }
+                    let value = raw as u8;
                     tokens.push((Token::Int(value), start_line));
                 }
             }
@@ -230,30 +235,30 @@ pub fn lex(source: String) -> Vec<Spanned> {
                     }
                 }
                 let token = match ident.as_str() {
-                    "vars"       => Token::Vars,
-                    "fn"         => Token::Fn,
-                    "main"       => Token::Main,
-                    "if"         => Token::If,
-                    "elif"       => Token::Elif,
-                    "else"       => Token::Else,
-                    "loop"       => Token::Loop,
-                    "while"      => Token::While,
-                    "sprites"    => Token::Sprites,
-                    "true"       => Token::Bool(true),
-                    "false"      => Token::Bool(false),
-                    "and"        => Token::And,
-                    "or"         => Token::Or,
-                    "not"        => Token::Not,
-                    "draw"       => Token::Draw,
-                    "clear"      => Token::Clear,
-                    "delay"      => Token::Delay,
-                    "getdelay"   => Token::GetDelay,
-                    "beep"       => Token::Beep,
-                    "getkey"     => Token::GetKey,
+                    "vars" => Token::Vars,
+                    "fn" => Token::Fn,
+                    "main" => Token::Main,
+                    "if" => Token::If,
+                    "elif" => Token::Elif,
+                    "else" => Token::Else,
+                    "loop" => Token::Loop,
+                    "while" => Token::While,
+                    "sprites" => Token::Sprites,
+                    "true" => Token::Bool(true),
+                    "false" => Token::Bool(false),
+                    "and" => Token::And,
+                    "or" => Token::Or,
+                    "not" => Token::Not,
+                    "draw" => Token::Draw,
+                    "clear" => Token::Clear,
+                    "delay" => Token::Delay,
+                    "getdelay" => Token::GetDelay,
+                    "beep" => Token::Beep,
+                    "getkey" => Token::GetKey,
                     "keypressed" => Token::KeyPressed,
-                    "rand"       => Token::Rand,
-                    "drawdigit"  => Token::DrawDigit,
-                    _            => Token::Ident(ident),
+                    "rand" => Token::Rand,
+                    "drawdigit" => Token::DrawDigit,
+                    _ => Token::Ident(ident),
                 };
                 tokens.push((token, start_line));
             }

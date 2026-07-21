@@ -9,7 +9,7 @@ use chipscript::lexer::{self, Token};
 fn lex(src: &str) -> Vec<Token> {
     lexer::lex(src.to_string())
         .into_iter()
-        .map(|(tok, _line)| tok)  // strip the line number
+        .map(|(tok, _line)| tok) // strip the line number
         .collect()
 }
 
@@ -33,8 +33,9 @@ fn zero() {
 }
 
 #[test]
-fn negative_integer() {
-    assert_eq!(lex_no_eof("-10"), vec![Token::Int(-10)]);
+fn negative_sign_not_literal() {
+    // `-10` is the Minus operator followed by Int(10) — no negative literals
+    assert_eq!(lex_no_eof("-10"), vec![Token::Minus, Token::Int(10)]);
 }
 
 #[test]
@@ -162,11 +163,11 @@ fn arrow() {
 }
 
 #[test]
-fn minus_vs_arrow_vs_negative() {
-    // '-' alone = Minus; '->' = Arrow; '-5' = Int(-5)
+fn minus_vs_arrow() {
+    // '-' alone = Minus; '->' = Arrow; '-5' = Minus then Int(5)
     assert_eq!(
         lex_no_eof("- -> -5"),
-        vec![Token::Minus, Token::Arrow, Token::Int(-5),]
+        vec![Token::Minus, Token::Arrow, Token::Minus, Token::Int(5),]
     );
 }
 

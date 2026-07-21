@@ -1,59 +1,7 @@
 #![allow(dead_code)]
 
 use crate::ast::*;
-
-// ---------------------------------------------------------------------------
-// Optimizer
-//
-// Three passes over the AST, run repeatedly until the program stops changing
-// (fixed-point iteration), so that each pass can expose new opportunities for
-// the others.
-//
-// Pass 1 – Constant Folding
-//   Evaluates expressions whose operands are all compile-time literals.
-//   Examples:
-//     3 + 4          → 7
-//     10 * 0         → 0
-//     true and false → false
-//     not true       → false
-//     5 == 5         → true
-//
-// Pass 2 – Dead Code Elimination
-//   Removes code that can never execute, determined by constant conditions.
-//   Examples:
-//     if (true)  { A } else { B }  → A
-//     if (false) { A } else { B }  → B
-//     if (false) { A }             → (nothing)
-//     while (false) { ... }        → (nothing)
-//   elif chains are pruned the same way: a branch whose condition is
-//   a constant false is removed; a branch whose condition is a constant
-//   true becomes the final else and all subsequent branches are dropped.
-//
-// Pass 3 – Strength Reduction
-//   Replaces expensive operations with cheaper equivalents when one operand
-//   is a known constant.  On CHIP-8, multiply and divide are software loops,
-//   so reducing them matters.
-//   Examples:
-//     x + 0   → x           x - 0  → x
-//     x * 0   → 0           x * 1  → x
-//     x / 1   → x           x % 1  → 0
-//     x * 2   → x + x       (avoids the multiply loop entirely)
-//     x and true  → x       x and false → false
-//     x or  false → x       x or  true  → true
-//     x == true   → x       x == false  → not x
-//     x != true   → not x   x != false  → x
-//
-// What is deliberately NOT attempted:
-//   Copy Propagation – all variables are mutable globals; a copy `a = b` is
-//   invalidated by any subsequent statement (function calls, draw, keypressed
-//   all have side effects that may touch any register).  Safe propagation
-//   windows would be so small as to be useless.
-//
-//   Common Subexpression Elimination – same reason: no expression involving a
-//   variable or a builtin can be safely hoisted or deduplicated because any
-//   intervening statement may change the value.  Literal-only CSE is already
-//   handled by constant folding.
-// ---------------------------------------------------------------------------
+use crate::error::{OPT, fail};
 
 pub struct Optimizer {
     pub folds: usize,      // constant folds performed
@@ -321,20 +269,28 @@ impl Optimizer {
 
         // ── Pass 1: both operands are literals → evaluate fully ──────────
         match (&left, &op, &right) {
-            // Arithmetic (Int op Int → Int)
+            // Arithmetic (Int op Int → Int) — unsigned wrapping mod 256
             (Expr::Int(a), Add, Expr::Int(b)) => {
-                return self.folded_int((*a as i32 + *b as i32) as i16);
+                return self.folded_int(a.wrapping_add(*b));
             }
             (Expr::Int(a), Sub, Expr::Int(b)) => {
-                return self.folded_int((*a as i32 - *b as i32) as i16);
+                return self.folded_int(a.wrapping_sub(*b));
             }
             (Expr::Int(a), Mul, Expr::Int(b)) => {
-                return self.folded_int((*a as i32 * *b as i32) as i16);
+                return self.folded_int(a.wrapping_mul(*b));
             }
             (Expr::Int(a), Div, Expr::Int(b)) if *b != 0 => return self.folded_int(*a / *b),
             (Expr::Int(a), Mod, Expr::Int(b)) if *b != 0 => return self.folded_int(*a % *b),
 
-            // Comparison (Int op Int → Bool)
+            // Division or modulo by literal 0 → compile error
+            (Expr::Int(_), Div, Expr::Int(0)) | (Expr::Int(_), Mod, Expr::Int(0)) => {
+                fail(
+                    OPT,
+                    "division or modulo by zero (constant expression evaluates to zero divisor)",
+                );
+            }
+
+            // Comparison (Int op Int → Bool) — unsigned ordering
             (Expr::Int(a), EqEq, Expr::Int(b)) => return self.folded_bool(a == b),
             (Expr::Int(a), NotEq, Expr::Int(b)) => return self.folded_bool(a != b),
             (Expr::Int(a), Lt, Expr::Int(b)) => return self.folded_bool(a < b),
@@ -481,7 +437,7 @@ impl Optimizer {
     // Helpers
     // -----------------------------------------------------------------------
 
-    fn folded_int(&mut self, n: i16) -> Expr {
+    fn folded_int(&mut self, n: u8) -> Expr {
         self.folds += 1;
         Expr::Int(n)
     }

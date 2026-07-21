@@ -84,16 +84,26 @@ mod optimizer_tests {
     }
 
     #[test]
-    fn fold_div_by_zero_not_folded() {
-        // Division by zero must NOT be folded — leave it for runtime
+    fn fold_div_by_zero_errors() {
+        // Division by zero is a compile-time error (matches SPECS)
         let expr = Expr::BinOp(Box::new(Expr::Int(5)), Op::Div, Box::new(Expr::Int(0)));
-        assert!(matches!(optimize_expr(expr), Expr::BinOp(..)));
+        assert!(
+            std::panic::catch_unwind(|| {
+                optimize_expr(expr);
+            })
+            .is_err()
+        );
     }
 
     #[test]
-    fn fold_mod_by_zero_not_folded() {
+    fn fold_mod_by_zero_errors() {
         let expr = Expr::BinOp(Box::new(Expr::Int(5)), Op::Mod, Box::new(Expr::Int(0)));
-        assert!(matches!(optimize_expr(expr), Expr::BinOp(..)));
+        assert!(
+            std::panic::catch_unwind(|| {
+                optimize_expr(expr);
+            })
+            .is_err()
+        );
     }
 
     #[test]

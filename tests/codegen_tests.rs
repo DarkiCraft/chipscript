@@ -85,8 +85,8 @@ fn getkey_emits_fx0a() {
     let rom = compile_no_opt("vars { k = 0; } main { k = getkey(); }");
     let found = rom
         .windows(2)
-        .any(|w| (w[0] & 0x0F) == 0x00 && w[1] == 0x0A);
-    assert!(found, "FX0A not found");
+        .any(|w| (w[0] & 0xF0) == 0xF0 && w[1] == 0x0A);
+    assert!(found, "Fx0A not found");
 }
 
 #[test]
@@ -94,8 +94,8 @@ fn getdelay_emits_fx07() {
     let rom = compile_no_opt("vars { t = 0; } main { t = getdelay(); }");
     let found = rom
         .windows(2)
-        .any(|w| (w[0] & 0x0F) == 0x00 && w[1] == 0x07);
-    assert!(found, "FX07 not found");
+        .any(|w| (w[0] & 0xF0) == 0xF0 && w[1] == 0x07);
+    assert!(found, "Fx07 not found");
 }
 
 // --- KeyPressed ---------------------------------------------------------

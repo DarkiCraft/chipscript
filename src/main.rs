@@ -40,16 +40,16 @@ Examples:
 ";
 
 struct Opts {
-    input:        String,
-    output:       Option<String>,
-    verbose:      bool,
-    no_analyze:   bool,
-    no_opt:       bool,
-    emit_tokens:  bool,
-    emit_ast:     bool,
+    input: String,
+    output: Option<String>,
+    verbose: bool,
+    no_analyze: bool,
+    no_opt: bool,
+    emit_tokens: bool,
+    emit_ast: bool,
     emit_ast_opt: bool,
-    emit_ir:      bool,
-    emit_rom_hex:  bool,
+    emit_ir: bool,
+    emit_rom_hex: bool,
     emit_symtable: bool,
 }
 
@@ -61,15 +61,15 @@ fn parse_args() -> Opts {
         process::exit(1);
     }
 
-    let mut input        = None;
-    let mut output       = None;
-    let mut verbose      = false;
-    let mut no_analyze   = false;
-    let mut no_opt       = false;
-    let mut emit_tokens  = false;
-    let mut emit_ast     = false;
+    let mut input = None;
+    let mut output = None;
+    let mut verbose = false;
+    let mut no_analyze = false;
+    let mut no_opt = false;
+    let mut emit_tokens = false;
+    let mut emit_ast = false;
     let mut emit_ast_opt = false;
-    let mut emit_ir      = false;
+    let mut emit_ir = false;
     let mut emit_rom_hex = false;
     let mut emit_symtable = false;
     let mut i = 0;
@@ -84,15 +84,15 @@ fn parse_args() -> Opts {
                 println!("chipscript {}", VERSION);
                 process::exit(0);
             }
-            "-v" | "--verbose"  => verbose      = true,
-            "--no-analyze"      => no_analyze   = true,
-            "--no-opt"          => no_opt        = true,
-            "--emit-tokens"     => emit_tokens  = true,
-            "--emit-ast"        => emit_ast      = true,
-            "--emit-ast-opt"    => emit_ast_opt  = true,
-            "--emit-ir"         => emit_ir       = true,
-            "--emit-rom-hex"    => emit_rom_hex  = true,
-            "--emit-symtable"   => emit_symtable = true,
+            "-v" | "--verbose" => verbose = true,
+            "--no-analyze" => no_analyze = true,
+            "--no-opt" => no_opt = true,
+            "--emit-tokens" => emit_tokens = true,
+            "--emit-ast" => emit_ast = true,
+            "--emit-ast-opt" => emit_ast_opt = true,
+            "--emit-ir" => emit_ir = true,
+            "--emit-rom-hex" => emit_rom_hex = true,
+            "--emit-symtable" => emit_symtable = true,
             "-o" => {
                 i += 1;
                 if i >= args.len() {
@@ -129,8 +129,19 @@ fn parse_args() -> Opts {
         }
     };
 
-    Opts { input, output, verbose, no_analyze, no_opt,
-           emit_tokens, emit_ast, emit_ast_opt, emit_ir, emit_rom_hex, emit_symtable }
+    Opts {
+        input,
+        output,
+        verbose,
+        no_analyze,
+        no_opt,
+        emit_tokens,
+        emit_ast,
+        emit_ast_opt,
+        emit_ir,
+        emit_rom_hex,
+        emit_symtable,
+    }
 }
 
 fn main() {
@@ -139,7 +150,9 @@ fn main() {
     let out_path = opts.output.unwrap_or_else(|| "out.ch8".to_string());
 
     // -- [1] lex --------------------------------------------------
-    if opts.verbose { eprintln!("[1/5] lexing '{}'", opts.input); }
+    if opts.verbose {
+        eprintln!("[1/6] lexing '{}'", opts.input);
+    }
 
     let source = std::fs::read_to_string(&opts.input).unwrap_or_else(|e| {
         eprintln!("error: could not read '{}': {}", opts.input, e);
@@ -156,10 +169,14 @@ fn main() {
         return;
     }
 
-    if opts.verbose { eprintln!("      {} token(s)", tokens.len()); }
+    if opts.verbose {
+        eprintln!("      {} token(s)", tokens.len());
+    }
 
     // -- [2] parse ------------------------------------------------
-    if opts.verbose { eprintln!("[2/5] parsing"); }
+    if opts.verbose {
+        eprintln!("[2/6] parsing");
+    }
 
     let mut parser = parser::Parser::new(tokens);
     let mut program = parser.parse();
@@ -170,34 +187,50 @@ fn main() {
     }
 
     if opts.verbose {
-        eprintln!("      {} sprite(s), {} var(s), {} function(s)",
-            program.sprites.len(), program.vars.len(), program.functions.len());
+        eprintln!(
+            "      {} sprite(s), {} var(s), {} function(s)",
+            program.sprites.len(),
+            program.vars.len(),
+            program.functions.len()
+        );
     }
 
     // -- [3] analyze ----------------------------------------------
     if opts.no_analyze {
-        if opts.verbose { eprintln!("[3/5] analysis skipped (--no-analyze)"); }
+        if opts.verbose {
+            eprintln!("[3/6] analysis skipped (--no-analyze)");
+        }
     } else {
-        if opts.verbose { eprintln!("[3/5] analyzing"); }
+        if opts.verbose {
+            eprintln!("[3/6] analyzing");
+        }
         let mut analyzer = analyzer::Analyzer::new();
         analyzer.analyze(&program);
         if opts.emit_symtable {
             analyzer.dump_symtable();
             return;
         }
-        if opts.verbose { eprintln!("      ok"); }
+        if opts.verbose {
+            eprintln!("      ok");
+        }
     }
 
     // -- [4] optimize ---------------------------------------------
     if opts.no_opt {
-        if opts.verbose { eprintln!("[4/5] optimization skipped (--no-opt)"); }
+        if opts.verbose {
+            eprintln!("[4/6] optimization skipped (--no-opt)");
+        }
     } else {
-        if opts.verbose { eprintln!("[4/5] optimizing"); }
+        if opts.verbose {
+            eprintln!("[4/6] optimizing");
+        }
         let mut opt = optimizer::Optimizer::new();
         opt.optimize(&mut program);
         if opts.verbose {
-            eprintln!("      {} constant fold(s), {} dead branch(es) eliminated, {} strength reduction(s)",
-                opt.folds, opt.dce, opt.reductions);
+            eprintln!(
+                "      {} constant fold(s), {} dead branch(es) eliminated, {} strength reduction(s)",
+                opt.folds, opt.dce, opt.reductions
+            );
         }
     }
 
@@ -206,11 +239,18 @@ fn main() {
         return;
     }
 
-    // -- [5] codegen + IR -----------------------------------------
-    if opts.verbose { eprintln!("[5/5] generating ROM"); }
+    // -- [5] IR generation ----------------------------------------
+    if opts.verbose {
+        eprintln!("[5/6] generating IR");
+    }
 
     let mut cg = codegen::Codegen::new();
     let rom = cg.generate(&program);
+
+    // -- [6] ROM generation ----------------------------------------
+    if opts.verbose {
+        eprintln!("[6/6] generating ROM");
+    }
 
     if opts.emit_ir {
         for quad in cg.get_ir() {
@@ -223,7 +263,9 @@ fn main() {
     if opts.emit_rom_hex {
         for (i, byte) in rom.iter().enumerate() {
             if i % 16 == 0 {
-                if i > 0 { println!(); }
+                if i > 0 {
+                    println!();
+                }
                 print!("{:04X}:  ", 0x200 + i);
             }
             print!("{:02X} ", byte);
@@ -237,7 +279,11 @@ fn main() {
     if let Some(parent) = std::path::Path::new(&out_path).parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).unwrap_or_else(|e| {
-                eprintln!("error: could not create output directory '{}': {}", parent.display(), e);
+                eprintln!(
+                    "error: could not create output directory '{}': {}",
+                    parent.display(),
+                    e
+                );
                 process::exit(1);
             });
         }
@@ -248,7 +294,9 @@ fn main() {
         process::exit(1);
     });
 
-    if opts.verbose { eprintln!("      {} bytes written", rom.len()); }
+    if opts.verbose {
+        eprintln!("      {} bytes written", rom.len());
+    }
 
     println!("ok  {} -> {} ({} bytes)", opts.input, out_path, rom.len());
 }

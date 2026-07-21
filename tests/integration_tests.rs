@@ -23,8 +23,8 @@ fn bouncing_ball() {
                     hit = draw(bx, by, ball);
                     bx = bx + dx;
                     by = by + dy;
-                    if ((bx <= 0) or (bx >= 60)) { dx = dx * -1; }
-                    if ((by <= 0) or (by >= 28)) { dy = dy * -1; }
+                    if ((bx <= 0) or (bx >= 60)) { dx = 0 - dx; }
+                    if ((by <= 0) or (by >= 28)) { dy = 0 - dy; }
                     hit = draw(bx, by, ball);
                     delay(1);
                 }
@@ -85,8 +85,8 @@ fn wandering_dot() {
                     r = rand(0x03);
                     if (r == 0) { dx = 1;  dy = 0; }
                     if (r == 1) { dx = 0;  dy = 1; }
-                    if (r == 2) { dx = -1; dy = 0; }
-                    if (r == 3) { dx = 0;  dy = -1; }
+                    if (r == 2) { dx = 255; dy = 0; }
+                    if (r == 3) { dx = 0;   dy = 255; }
                     hx = hx + dx;
                     hy = hy + dy;
                     if (hx == 64)  { hx = 0;  }

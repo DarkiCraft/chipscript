@@ -61,7 +61,7 @@ pub struct ElseIf {
 // an expression produces a value
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Int(i16),                        // 10
+    Int(u8),                         // 10 (unsigned byte 0–255)
     Bool(bool),                      // true / false
     Var(String),                     // a
     BinOp(Box<Expr>, Op, Box<Expr>), // a + b, a == b

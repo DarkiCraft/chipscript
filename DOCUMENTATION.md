@@ -110,7 +110,13 @@ else_clause ::= 'else' block
 ### 2.4 Expressions
 
 ```bnf
-expr        ::= unary (binop unary)*
+expr        ::= or_expr
+or_expr     ::= and_expr ('or' and_expr)*
+and_expr    ::= cmp_expr ('and' cmp_expr)*
+cmp_expr    ::= add_expr (cmpop add_expr)*
+add_expr    ::= mul_expr (('+' | '-') mul_expr)*
+mul_expr    ::= unary (('*' | '/' | '%') unary)*
+
 unary       ::= 'not' unary | primary
 
 primary     ::= INT
@@ -127,21 +133,19 @@ primary     ::= INT
 
 arg_list    ::= expr (',' expr)*
 
-binop       ::= '+' | '-' | '*' | '/' | '%'
-              | '==' | '!=' | '<' | '>' | '<=' | '>='
-              | 'and' | 'or'
+cmpop       ::= '==' | '!=' | '<' | '>' | '<=' | '>='
 ```
 
 ### 2.5 Terminals
 
 ```bnf
-INT         ::= [0-9]+  |  '0x' [0-9a-fA-F]+  |  '-' [0-9]+
+INT         ::= [0-9]+  |  '0x' [0-9a-fA-F]+
 BOOL        ::= 'true' | 'false'
 IDENT       ::= [a-zA-Z_] [a-zA-Z0-9_]*
 STRING_LIT  ::= '"' [^"]* '"'
 ```
 
-> **Note:** All binary operators have equal precedence and associate left-to-right. Parentheses must be used explicitly to control evaluation order when mixing operator kinds.
+> **Note:** ChipScript implements conventional precedence tiers: `or` < `and` < comparison < additive < multiplicative. All operators are left-associative within their tier.
 
 ## 3. Detailed Working of Each Compiler Phase
 
@@ -168,7 +172,7 @@ The parser consumes the token stream and constructs an Abstract Syntax Tree (AST
 **Key responsibilities:**
 - Parse all four top-level sections (`sprites`, `vars`, `fn`, `main`) in any order
 - Construct typed AST nodes: `Program`, `SpriteDecl`, `VarDecl`, `FnDecl`, `Stmt`, `Expr`
-- Parse expressions with a unified `parse_binop` loop (left-to-right, equal precedence)
+- Parse expressions with precedence tiers (`or` → `and` → comparison → additive → multiplicative)
 - Handle all statement forms: assignment, call, `if`/`elif`/`else`, `while`, `loop`, `clear`, `delay`, `beep`
 - Parse built-in expression forms: `draw()`, `drawdigit()`, `getkey()`, `keypressed()`, `rand()`
 - Report syntax errors with descriptive messages
@@ -194,8 +198,14 @@ The semantic analyzer performs type checking and scope validation over the AST. 
 - All function calls reference a declared function with the correct argument count
 - All sprite references in `draw()` are declared in `sprites {}`
 - Type correctness: arithmetic on `int`, logic on `bool`, no implicit conversion
+- Ordered comparisons (`<`, `>`, `<=`, `>=`) require `int` operands; `==`/`!=` work on both
 - Condition expressions in `if`/`elif`/`while` are `bool`
-- Register budget at every call site: `vars + args + return slot ≤ 15`
+- All function arguments are typed `int`; builtin arguments (`draw`, `drawdigit`, `keypressed`) type-checked
+- Register budget at every function: `globals + frame (args+1 return) + max expression temps ≤ 14`
+- Name uniqueness across variables, functions, and sprites
+- Call-graph analysis: no recursion (cycle detection), maximum call depth ≤ 16 (stack limit)
+- Variable initialisers must be constant expressions (literals + operators)
+- Division/modulo by literal zero is a compile error
 - Sprite height: 1–15 rows (CHIP-8 hardware limit)
 - `rand()` mask must be a compile-time literal, not a variable
 
@@ -279,7 +289,12 @@ The code generator translates IR quadruples into CHIP-8 binary opcodes. CHIP-8 o
 - Emit correct 2-byte CHIP-8 opcodes for all IR instructions
 - Manage control flow: resolve forward jump targets by backpatching label addresses
 - Emit sprite data into the ROM and record addresses for draw opcodes
-- Handle function calls via the CHIP-8 call/return stack
+- Handle function calls via the CHIP-8 call/return stack with caller-saves save/restore ABI (`Fx55`/`Fx65`)
+- Assign registers: V0 scratch, V1–V14 work region (frames + temps), VF flag; globals assigned top-down
+- Emit per-depth save areas for function call register preservation
+- Mask `drawdigit` values to 0–15 with `AND 0x0F` for defined behaviour
+- Check ROM size ≤ 3584 bytes (CHIP-8 memory limit `0x200–0xFFF`)
+- Align code to even addresses (Cowgod requirement)
 - Produce a complete, runnable `.ch8` ROM binary
 
 **Inspect with:** `chipscript file.cs --emit-rom-hex`
@@ -307,14 +322,14 @@ The compiler exits with a non-zero status on any error and prints nothing to std
 ## 5. Hardware Limits
 
 | Resource | Limit | Notes |
-|---|---|---|
+|---|---|---|---|
 | Screen | 64 × 32 px | Monochrome; sprites wrap at edges |
-| Variables | 15 max | One CHIP-8 register each; VF reserved |
-| Integer range | −128 to 127 | 8-bit signed; overflow wraps silently |
+| Variables | 14 max | V0 scratch, V1–V14 work registers; VF flag |
+| Integer range | 0 to 255 | 8-bit unsigned; wraps mod 256 |
 | Sprite height | 1–15 rows | 8 pixels wide, fixed |
-| Call stack | 16 levels | CHIP-8 hardware limit |
+| Call stack | 16 levels | Enforced by compiler |
 | Timer frequency | 60 Hz | Both delay and sound timers |
-| ROM memory | ~3.5 KB | Available for program + sprite data |
+| ROM memory | ~3.5 KB (3584 bytes) | Enforced by compiler |
 
 ## 6. Built-in Functions Reference
 

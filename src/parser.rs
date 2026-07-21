@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::ast::*;
-use crate::error::{fail, fail_at, PARSE};
+use crate::error::{PARSE, fail, fail_at};
 use crate::lexer::{Spanned, Token};
 
 pub struct Parser {
@@ -54,18 +54,39 @@ impl Parser {
 
     // -- ENTRY POINT ------------------------------------------
     pub fn parse(&mut self) -> Program {
-        let mut sprites   = Vec::new();
-        let mut vars      = Vec::new();
+        let mut sprites = Vec::new();
+        let mut vars = Vec::new();
         let mut functions = Vec::new();
-        let mut main      = Vec::new();
+        let mut main = Vec::new();
+        let mut seen_spr = false;
+        let mut seen_vars = false;
+        let mut seen_main = false;
 
         while !self.check(&Token::EOF) {
             let ln = self.line();
             match self.peek().clone() {
-                Token::Sprites => sprites = self.parse_sprites_block(),
-                Token::Vars    => vars    = self.parse_vars(),
-                Token::Fn      => functions.push(self.parse_fn()),
-                Token::Main    => main    = self.parse_main(),
+                Token::Sprites => {
+                    if seen_spr {
+                        fail_at(PARSE, ln, "duplicate 'sprites' section");
+                    }
+                    seen_spr = true;
+                    sprites = self.parse_sprites_block();
+                }
+                Token::Vars => {
+                    if seen_vars {
+                        fail_at(PARSE, ln, "duplicate 'vars' section");
+                    }
+                    seen_vars = true;
+                    vars = self.parse_vars();
+                }
+                Token::Fn => functions.push(self.parse_fn()),
+                Token::Main => {
+                    if seen_main {
+                        fail_at(PARSE, ln, "duplicate 'main' section");
+                    }
+                    seen_main = true;
+                    main = self.parse_main();
+                }
                 other => fail_at(
                     PARSE,
                     ln,
@@ -74,7 +95,12 @@ impl Parser {
             }
         }
 
-        Program { sprites, vars, functions, main }
+        Program {
+            sprites,
+            vars,
+            functions,
+            main,
+        }
     }
 
     // -- SPRITE -----------------------------------------------
@@ -121,7 +147,10 @@ impl Parser {
                 other => fail_at(
                     PARSE,
                     data_ln,
-                    format!("expected '[' or string path for sprite data, got {:?}", other),
+                    format!(
+                        "expected '[' or string path for sprite data, got {:?}",
+                        other
+                    ),
                 ),
             };
             self.expect(&Token::Semicolon);
@@ -141,7 +170,11 @@ impl Parser {
             let ln = self.line();
             let name = match self.advance().clone() {
                 Token::Ident(n) => n,
-                other => fail_at(PARSE, ln, format!("expected variable name, got {:?}", other)),
+                other => fail_at(
+                    PARSE,
+                    ln,
+                    format!("expected variable name, got {:?}", other),
+                ),
             };
             self.expect(&Token::Equals);
             let value = self.parse_expr();
@@ -158,7 +191,11 @@ impl Parser {
         let name_ln = self.line();
         let name = match self.advance().clone() {
             Token::Ident(n) => n,
-            other => fail_at(PARSE, name_ln, format!("expected function name, got {:?}", other)),
+            other => fail_at(
+                PARSE,
+                name_ln,
+                format!("expected function name, got {:?}", other),
+            ),
         };
         self.expect(&Token::LParen);
         let mut args = Vec::new();
@@ -166,7 +203,11 @@ impl Parser {
             let arg_ln = self.line();
             match self.advance().clone() {
                 Token::Ident(n) => args.push(n),
-                other => fail_at(PARSE, arg_ln, format!("expected argument name, got {:?}", other)),
+                other => fail_at(
+                    PARSE,
+                    arg_ln,
+                    format!("expected argument name, got {:?}", other),
+                ),
             }
             if self.check(&Token::Comma) {
                 self.advance();
@@ -177,10 +218,19 @@ impl Parser {
         let ret_ln = self.line();
         let ret = match self.advance().clone() {
             Token::Ident(n) => n,
-            other => fail_at(PARSE, ret_ln, format!("expected return variable name, got {:?}", other)),
+            other => fail_at(
+                PARSE,
+                ret_ln,
+                format!("expected return variable name, got {:?}", other),
+            ),
         };
         let body = self.parse_block();
-        FnDecl { name, args, ret, body }
+        FnDecl {
+            name,
+            args,
+            ret,
+            body,
+        }
     }
 
     // -- MAIN -------------------------------------------------
@@ -204,8 +254,8 @@ impl Parser {
     fn parse_stmt(&mut self) -> Stmt {
         let ln = self.line();
         match self.peek().clone() {
-            Token::If    => self.parse_if(),
-            Token::Loop  => {
+            Token::If => self.parse_if(),
+            Token::Loop => {
                 self.advance();
                 let body = self.parse_block();
                 Stmt::Loop(body)
@@ -287,7 +337,7 @@ impl Parser {
         self.expect(&Token::RParen);
         let body = self.parse_block();
 
-        let mut elseifs   = Vec::new();
+        let mut elseifs = Vec::new();
         let mut else_body = None;
 
         while self.check(&Token::Elif) {
@@ -296,7 +346,10 @@ impl Parser {
             let c = self.parse_expr();
             self.expect(&Token::RParen);
             let b = self.parse_block();
-            elseifs.push(ElseIf { condition: c, body: b });
+            elseifs.push(ElseIf {
+                condition: c,
+                body: b,
+            });
         }
         if self.check(&Token::Else) {
             self.advance();
@@ -315,29 +368,73 @@ impl Parser {
         Stmt::While(cond, body)
     }
 
-    // -- EXPRESSION -------------------------------------------
+    // -- EXPRESSION (precedence tiers) ------------------------
     fn parse_expr(&mut self) -> Expr {
-        self.parse_binop()
+        self.parse_or()
     }
-
-    fn parse_binop(&mut self) -> Expr {
+    // lowest precedence: or
+    fn parse_or(&mut self) -> Expr {
+        let mut left = self.parse_and();
+        while self.check(&Token::Or) {
+            self.advance();
+            let right = self.parse_and();
+            left = Expr::BinOp(Box::new(left), Op::Or, Box::new(right));
+        }
+        left
+    }
+    // and
+    fn parse_and(&mut self) -> Expr {
+        let mut left = self.parse_cmp();
+        while self.check(&Token::And) {
+            self.advance();
+            let right = self.parse_cmp();
+            left = Expr::BinOp(Box::new(left), Op::And, Box::new(right));
+        }
+        left
+    }
+    // comparison (== != < > <= >=)
+    fn parse_cmp(&mut self) -> Expr {
+        let mut left = self.parse_add();
+        loop {
+            let op = match self.peek() {
+                Token::EqEq => Op::EqEq,
+                Token::NotEq => Op::NotEq,
+                Token::Lt => Op::Lt,
+                Token::Gt => Op::Gt,
+                Token::LtEq => Op::LtEq,
+                Token::GtEq => Op::GtEq,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_add();
+            left = Expr::BinOp(Box::new(left), op, Box::new(right));
+        }
+        left
+    }
+    // additive (+ -)
+    fn parse_add(&mut self) -> Expr {
+        let mut left = self.parse_mul();
+        loop {
+            let op = match self.peek() {
+                Token::Plus => Op::Add,
+                Token::Minus => Op::Sub,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_mul();
+            left = Expr::BinOp(Box::new(left), op, Box::new(right));
+        }
+        left
+    }
+    // multiplicative (* / %)
+    fn parse_mul(&mut self) -> Expr {
         let mut left = self.parse_unary();
         loop {
             let op = match self.peek() {
-                Token::Plus    => Op::Add,
-                Token::Minus   => Op::Sub,
-                Token::Star    => Op::Mul,
-                Token::Slash   => Op::Div,
+                Token::Star => Op::Mul,
+                Token::Slash => Op::Div,
                 Token::Percent => Op::Mod,
-                Token::EqEq    => Op::EqEq,
-                Token::NotEq   => Op::NotEq,
-                Token::Lt      => Op::Lt,
-                Token::Gt      => Op::Gt,
-                Token::LtEq    => Op::LtEq,
-                Token::GtEq    => Op::GtEq,
-                Token::And     => Op::And,
-                Token::Or      => Op::Or,
-                _              => break,
+                _ => break,
             };
             self.advance();
             let right = self.parse_unary();
@@ -345,7 +442,7 @@ impl Parser {
         }
         left
     }
-
+    // unary (not)
     fn parse_unary(&mut self) -> Expr {
         if self.check(&Token::Not) {
             self.advance();
@@ -370,10 +467,6 @@ impl Parser {
                 let e = self.parse_expr();
                 self.expect(&Token::RParen);
                 e
-            }
-            Token::Not => {
-                self.advance();
-                Expr::Not(Box::new(self.parse_primary()))
             }
             Token::Draw => {
                 self.advance();

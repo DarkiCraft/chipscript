@@ -1,7 +1,8 @@
 // Phase labels used in every error message.
-pub const LEX:    &str = "lexer";
-pub const PARSE:  &str = "parser";
+pub const LEX: &str = "lexer";
+pub const PARSE: &str = "parser";
 pub const ANALYZE: &str = "analyzer";
+pub const OPT: &str = "optimizer";
 pub const CODEGEN: &str = "codegen";
 
 /// Abort with a phase-tagged, line-located error.
